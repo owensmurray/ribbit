@@ -4,6 +4,8 @@
 {- | "postgresql-simple"-backed query ribbit implementation. -}
 module Database.Ribbit.PostgreSQL (
   query,
+  FromRow,
+  ToRow,
 ) where
 
 
@@ -21,6 +23,7 @@ import qualified Database.PostgreSQL.Simple.FromRow as PGF
 import qualified Database.PostgreSQL.Simple.ToRow as PGT
 
 
+{- | Execute a query against a PostgreSQL database connection. -}
 query :: (
     MonadIO m,
     Render query,
