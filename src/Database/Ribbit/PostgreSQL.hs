@@ -61,6 +61,9 @@ instance (ToRow a, ToRow b) => ToRow (a :> b) where
   toRow (a :> b) = toRow a ++ toRow b
 instance (ToField a) => ToRow (Only a) where
   toRow = PGT.toRow
+instance ToRow () where
+  toRow = PGT.toRow
+  
 
 
 {- | Wrapper that helps us avoid orphan instances. -}
