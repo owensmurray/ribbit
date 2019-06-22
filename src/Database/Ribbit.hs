@@ -61,6 +61,7 @@ import Data.Proxy (Proxy(Proxy))
 import Data.String (IsString, fromString)
 import Data.Text (Text)
 import Data.Tuple.Only (Only)
+import Data.Type.Bool (If, type (||))
 import GHC.TypeLits (KnownSymbol, TypeError, ErrorMessage((:<>:),
   (:$$:), ShowType), AppendSymbol, Symbol)
 import qualified GHC.TypeLits as Lit
@@ -153,11 +154,8 @@ import qualified GHC.TypeLits as Lit
 --
 
 
-
-
 {- | "SELECT" combinator, used for starting a @SELECT@ statement. -}
 data Select fields
-
 
 
 {- |
@@ -171,7 +169,6 @@ infixl 6 `From`
 {- | "WHERE" combinator, used for attaching conditions to a query. -}
 data Where query conditions
 infixl 6 `Where`
-
 
 
 {- | "=" combinator for conditions. -}
@@ -220,18 +217,18 @@ infixr 5 :>
 data Expr a
 
 type family ProjectionType proj schema where
-  ProjectionType '[name] (Field name typ) = Only typ
-  ProjectionType '[name] (Field name2 typ) =
-    TypeError (
-      'Lit.Text "name ("
-      ':<>: 'ShowType name
-      ':<>: 'Lit.Text ") not found in relation."
-    )
-  ProjectionType '[name] (Field name typ :> _) = Only typ
-  ProjectionType '[name] (_ :> more) = ProjectionType '[name] more
+  ProjectionType '[name] schema =
+    LookupType name schema schema
+  ProjectionType (name:more) schema =
+    LookupType name schema schema
+    :> ProjectionType more schema
 
-  ProjectionType (name:more) relation =
-    ProjectionType '[name] relation :> ProjectionType more relation
+type family LookupType name schema context where
+  LookupType name (Field name typ) _ = Only typ
+  LookupType name (Field name typ :> _) _ = Only typ
+  LookupType name (Field _ typ) context = NotInSchema name context
+  LookupType name (_ :> more) context = LookupType name more context
+  LookupType name a context = NotInSchema name context
 
 class Table relation where
   type DBSchema relation
@@ -292,7 +289,28 @@ type family ArgsType query where
     StripUnit (Flatten (ArgsType (schema, a) :> ArgsType (schema, b)))
   ArgsType (schema, Equals field (?)) =
     ProjectionType '[field] schema
+  ArgsType (schema, Equals field expr) =
+    If
+      (ValidField expr schema)
+      (If (ValidField field schema) () (NotInSchema field schema))
+      (NotInSchema expr schema)
   ArgsType _ = ()
+
+type family NotInSchema field schema where
+  NotInSchema field schema =
+    TypeError (
+      'Lit.Text "name ("
+      ':<>: 'ShowType field
+      ':<>: 'Lit.Text ") not found in schema: "
+      ':<>: 'ShowType schema
+    )
+
+
+{- | Produce a type error if the field is not contained within the schema. -}
+type family ValidField field schema where
+  ValidField name (Field name typ) = 'True
+  ValidField name (Field _ typ) = 'False
+  ValidField name (a :> b) = ValidField name a || ValidField name b
 
 
 {- |

@@ -1,5 +1,18 @@
 # Ribbit
 
+- [Ribbit](#ribbit)
+    - [Status](#status)
+        - [Current Features](#current-features)
+            - [Basic @Select .. From ..](#basic-select--from-)
+            - [Cross product](#cross-product)
+            - [Limited Conditionals](#limited-conditionals)
+    - [Roadmap](#roadmap)
+        - [More conditional operatores.](#more-conditional-operatores)
+        - [`CREATE TABLE` support.](#create-table-support)
+        - [`INSERT INTO` support.](#insert-into-support)
+    - [How it compares with other libraries.](#how-it-compares-with-other-libraries)
+    - [The name: Ribbit](#the-name-ribbit)
+
 Ribbit is yet another type safe relational database
 library for Haskell, heavily inspired by the amazing
 [Servant](http://hackage.haskell.org/package/servant) library. The goal
@@ -31,9 +44,60 @@ matchingPeople <-
 
 ## Status
 
-The status of Ribbit is non-functional pre-alpha. My goal though is to
-make sure it is absolutely production ready for the operations it ends
-up supporting, but we are a long way from that at the moment.
+The status of Ribbit "Very Incomplete". My goal is to take a "depth first"
+approach, where every feature added is production ready before moving on to the
+next feature. Featured back-ends include `postgres-simple` at this time.
+
+### Current Features
+
+These are the features that are currently implemented.
+
+#### Basic @Select .. From ..
+
+We support queries of the form:
+
+> type MyQuery = Select '["field1", "field2"] `From` MyTable
+
+#### Cross product
+
+We support queries of the form:
+
+type MyQuery = Select '["t1.field1", "t2.field2"] `From` MyTable1 `As` "t1" `X` MyTable2 `As` "t2"
+
+#### Limited Conditionals
+
+We support queries of the form:
+
+> type MyQuery = Select '["field1", "field2"] `From` MyTable `Where` <condition>
+
+Where <condition> can include:
+
+- a `And` b: Basic intersection.
+- a `Or` b: Basic union.
+- "field" `Equals` (?): Test for equality. This introduces a query parameter that must be supplied at runtime.
+- "field1" `Equals` "field2": Test the equality of two fields (that both must exist in the schema)
+
+## Roadmap
+
+This is what I plan to work on next:
+
+### More conditional operatores.
+
+I want to fill in the conditional operators with the usual suspects (`<`, `<=`, `>`, `>=`, `!=`, etc.).
+
+### `CREATE TABLE` support.
+
+One source of programming bugs is when the schema in the database and the
+schema described by your schema types get out of sync. It is never possible to
+always ensure at compile time that your database will match your program when
+actually run, but the addition of `CREATE TABLE` support will at least make it
+possible for the database schema to have one source of truth in your codebase
+(as opposed to having to maintain Ribbit schemas and also a corresponding
+schema embedded in some database initialization script somewhere).
+
+### `INSERT INTO` support.
+
+Obviously, we want to do more with our DB than just read from it.
 
 ## How it compares with other libraries.
 
