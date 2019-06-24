@@ -43,6 +43,12 @@ module Database.Ribbit (
   And,
   Or,
   Equals,
+  NotEquals,
+  Gt,
+  Gte,
+  Lt,
+  Lte,
+  Not,
 
   -- ** Query Parameters
   type (?),
@@ -176,6 +182,31 @@ data Equals l r
 infix 9 `Equals`
 
 
+{- | "!=" combinator for conditions. -}
+data NotEquals l r
+infix 9 `NotEquals`
+
+
+{- | "<" combinator for conditions. -}
+data Lt l r
+infix 9 `Lt`
+
+
+{- | "<=" combinator for conditions. -}
+data Lte l r
+infix 9 `Lte`
+
+
+{- | ">" combinator for conditions. -}
+data Gt l r
+infix 9 `Gt`
+
+
+{- | ">=" combinator for conditions. -}
+data Gte l r
+infix 9 `Gte`
+
+
 {- | "AND" combinator for conditions. -}
 data And l r
 infixr 8 `And`
@@ -194,6 +225,10 @@ infixr 7 `X`
 {- | "AS" combinator, used for attaching a name to a table in a FROM clause. -}
 data As relation name
 infix 8 `As`
+
+
+{- | NOT conditional combinator. -}
+data Not a
 
 
 {- | "?" combinator, used to indicate the presence of a query parameter. -}
@@ -215,6 +250,7 @@ infixr 5 :>
 
 
 data Expr a
+
 
 type family ProjectionType proj schema where
   ProjectionType '[name] schema =
@@ -287,14 +323,31 @@ type family ArgsType query where
     StripUnit (Flatten (ArgsType (schema, a) :> ArgsType (schema, b)))
   ArgsType (schema, Or a b) =
     StripUnit (Flatten (ArgsType (schema, a) :> ArgsType (schema, b)))
-  ArgsType (schema, Equals field (?)) =
+  ArgsType (schema, Condition field (?)) =
     ProjectionType '[field] schema
-  ArgsType (schema, Equals field expr) =
+  ArgsType (schema, Condition (?) field) =
+    ProjectionType '[field] schema
+  ArgsType (schema, Condition l r) =
     If
-      (ValidField expr schema)
-      (If (ValidField field schema) () (NotInSchema field schema))
-      (NotInSchema expr schema)
+      (ValidField r schema)
+      (If (ValidField l schema) () (NotInSchema l schema))
+      (NotInSchema r schema)
+  ArgsType (schema, Equals l r) = ArgsType (schema, Condition l r)
+  ArgsType (schema, NotEquals l r) = ArgsType (schema, Condition l r)
+  ArgsType (schema, Lt l r) = ArgsType (schema, Condition l r)
+  ArgsType (schema, Lte l r) = ArgsType (schema, Condition l r)
+  ArgsType (schema, Gt l r) = ArgsType (schema, Condition l r)
+  ArgsType (schema, Gte l r) = ArgsType (schema, Condition l r)
+  ArgsType (schema, Not a) = ArgsType (schema, a)
   ArgsType _ = ()
+
+
+{- |
+  Helper for 'ArgsType'. Reduces the number of equations required, because
+  'ArgsType' doesn't actually care about which condition it is inspecting.
+-}
+data Condition l r
+
 
 type family NotInSchema field schema where
   NotInSchema field schema =
@@ -375,6 +428,48 @@ instance (Render (Expr l), Render (Expr r)) => Render (Equals l r) where
   render _proxy =
     render (Proxy @(Expr l))
     <> " = "
+    <> render (Proxy @(Expr r))
+
+{- Not Equals -}
+instance (Render (Expr l), Render (Expr r)) => Render (NotEquals l r) where
+  render _proxy =
+    render (Proxy @(Expr l))
+    <> " != "
+    <> render (Proxy @(Expr r))
+
+{- Not -}
+instance (Render a) => Render (Not a) where
+  render _proxy =
+    "not ("
+    <> render (Proxy @a)
+    <> ")"
+
+{- Gt -}
+instance (Render (Expr l), Render (Expr r)) => Render (Gt l r) where
+  render _proxy =
+    render (Proxy @(Expr l))
+    <> " > "
+    <> render (Proxy @(Expr r))
+
+{- Gte -}
+instance (Render (Expr l), Render (Expr r)) => Render (Gte l r) where
+  render _proxy =
+    render (Proxy @(Expr l))
+    <> " >= "
+    <> render (Proxy @(Expr r))
+
+{- Lt -}
+instance (Render (Expr l), Render (Expr r)) => Render (Lt l r) where
+  render _proxy =
+    render (Proxy @(Expr l))
+    <> " < "
+    <> render (Proxy @(Expr r))
+
+{- Lte -}
+instance (Render (Expr l), Render (Expr r)) => Render (Lte l r) where
+  render _proxy =
+    render (Proxy @(Expr l))
+    <> " <= "
     <> render (Proxy @(Expr r))
 
 {- AND -}

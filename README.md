@@ -5,7 +5,7 @@
         - [Current Features](#current-features)
             - [Basic @Select .. From ..](#basic-select--from-)
             - [Cross product](#cross-product)
-            - [Limited Conditionals](#limited-conditionals)
+            - [Conditionals](#conditionals)
     - [Roadmap](#roadmap)
         - [More conditional operatores.](#more-conditional-operatores)
         - [`CREATE TABLE` support.](#create-table-support)
@@ -64,26 +64,29 @@ We support queries of the form:
 
 type MyQuery = Select '["t1.field1", "t2.field2"] `From` MyTable1 `As` "t1" `X` MyTable2 `As` "t2"
 
-#### Limited Conditionals
+#### Conditionals
 
 We support queries of the form:
 
-> type MyQuery = Select '["field1", "field2"] `From` MyTable `Where` <condition>
+> type MyQuery = Select '["field1", "field2"] `From` MyTable `Where` \<condition\>
 
-Where <condition> can include:
+Where ```<condition>``` can include:
 
-- a `And` b: Basic intersection.
-- a `Or` b: Basic union.
-- "field" `Equals` (?): Test for equality. This introduces a query parameter that must be supplied at runtime.
-- "field1" `Equals` "field2": Test the equality of two fields (that both must exist in the schema)
+- ```a `And` b```: Basic intersection.
+- ```a `Or` b```: Basic union.
+- ```"field" `Equals` (?)```: Test for equality. This introduces a query parameter that must be supplied at runtime.
+- ```"field1" `Equals` "field2"```: Test the equality of two fields (that both must exist in the schema)
+- ```a `Lt` b```: Less than operator.
+- ```a `Lte` b```: Less than or equal to operator.
+- ```a `Gt` b```: Greater than operator.
+- ```a `Gte` b```: Greater than or equal to operator.
+- ```Not a```: Not operator.
+- ```"field" `NotEquals` (?)```: Test for inequality against a query parameter.
+- ```"field1" `NotEquals` "field2"```: Test for inequality between two fields.
 
 ## Roadmap
 
 This is what I plan to work on next:
-
-### More conditional operatores.
-
-I want to fill in the conditional operators with the usual suspects (`<`, `<=`, `>`, `>=`, `!=`, etc.).
 
 ### `CREATE TABLE` support.
 
