@@ -6,10 +6,10 @@
             - [Basic @Select .. From ..](#basic-select--from-)
             - [Cross product](#cross-product)
             - [Conditionals](#conditionals)
+            - [Limited `CREATE TABLE` support.](#limited-create-table-support)
     - [Roadmap](#roadmap)
-        - [More conditional operatores.](#more-conditional-operatores)
-        - [`CREATE TABLE` support.](#create-table-support)
         - [`INSERT INTO` support.](#insert-into-support)
+        - [Flesh out Haskell to PostgreSQL type mapping.](#flesh-out-haskell-to-postgresql-type-mapping)
     - [How it compares with other libraries.](#how-it-compares-with-other-libraries)
     - [The name: Ribbit](#the-name-ribbit)
 
@@ -92,23 +92,42 @@ Where ```<condition>``` can include:
 - ```"field" `NotEquals` (?)```: Test for inequality against a query parameter.
 - ```"field1" `NotEquals` "field2"```: Test for inequality between two fields.
 
+#### Limited `CREATE TABLE` support.
+
+The postgresql-simple backend supports creating tables in the
+database. This support is "limited" because it misses the following
+features:
+
+- PostgreSQL column types are know for only a small number of Haskell types.
+  This is extensible by the user (by implementing a type class), but it would
+  be nice to have a more comprehensive set of mappings out of the box.
+
+- Foreign key constraints are not yet supported.
+
+- Arbitrary non-primary-key indexes are not yet supported.
+
+What *IS* supported already is:
+
+- Determining whether a field is nullable, based on whether the corresponding
+  Haskell type is wrapped in a `Maybe`.
+
+- Compound primary keys. I.e. primary keys consisting of more than one
+  component.
+
+
 ## Roadmap
 
 This is what I plan to work on next:
 
-### `CREATE TABLE` support.
-
-One source of programming bugs is when the schema in the database and the
-schema described by your schema types get out of sync. It is never possible to
-always ensure at compile time that your database will match your program when
-actually run, but the addition of `CREATE TABLE` support will at least make it
-possible for the database schema to have one source of truth in your codebase
-(as opposed to having to maintain Ribbit schemas and also a corresponding
-schema embedded in some database initialization script somewhere).
-
 ### `INSERT INTO` support.
 
 Obviously, we want to do more with our DB than just read from it.
+
+### Flesh out Haskell to PostgreSQL type mapping.
+
+As mentioned above, only a small number of Haskell types are mapped
+to PostgreSQL types out of the box. We would like to make this a more
+comprehensive mapping out of the box.
 
 ## How it compares with other libraries.
 

@@ -24,7 +24,8 @@ library
     Only              >= 0.1     && < 0.2,
     base              >= 4.12    && < 4.13,
     postgresql-simple >= 0.6.2   && < 0.7,
-    text              >= 1.2.3.1 && < 1.3
+    text              >= 1.2.3.1 && < 1.3,
+    time              >= 1.8.0.2 && < 1.9
   hs-source-dirs:      src
   default-language:    Haskell2010
 
