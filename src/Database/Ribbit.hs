@@ -56,7 +56,8 @@ module Database.Ribbit (
   -- * Transformations on Query Types
   ArgsType,
   ResultType,
-  
+  ValidField,
+
   -- * Query Rendering
   Render(..)
 
@@ -344,7 +345,8 @@ type family ArgsType query where
 
 {- |
   Helper for 'ArgsType'. Reduces the number of equations required, because
-  'ArgsType' doesn't actually care about which condition it is inspecting.
+  'ArgsType' doesn't actually care about which conditionl operator it
+  is inspecting.
 -}
 data Condition l r
 
@@ -359,7 +361,7 @@ type family NotInSchema field schema where
     )
 
 
-{- | Produce a type error if the field is not contained within the schema. -}
+{- | Type level check to see if the field is actually contained in the schema -}
 type family ValidField field schema where
   ValidField name (Field name typ) = 'True
   ValidField name (Field _ typ) = 'False
