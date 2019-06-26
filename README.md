@@ -44,9 +44,11 @@ matchingPeople <-
 
 ## Status
 
-The status of Ribbit "Very Incomplete". My goal is to take a "depth first"
-approach, where every feature added is production ready before moving on to the
-next feature. Featured back-ends include `postgres-simple` at this time.
+The status of Ribbit "Very Incomplete". My goal is to take a "depth
+first" approach, where every feature added is production ready
+before moving on to the next feature. Featured back-ends include
+[postgresql-simple](https://hackage.haskell.org/package/postgresql-simple)
+at this time.
 
 ### Current Features
 
@@ -56,19 +58,25 @@ These are the features that are currently implemented.
 
 We support queries of the form:
 
-> type MyQuery = Select '["field1", "field2"] `From` MyTable
+```haskell
+type MyQuery = Select '["field1", "field2"] `From` MyTable
+```
 
 #### Cross product
 
 We support queries of the form:
 
+```haskell
 type MyQuery = Select '["t1.field1", "t2.field2"] `From` MyTable1 `As` "t1" `X` MyTable2 `As` "t2"
+```
 
 #### Conditionals
 
 We support queries of the form:
 
-> type MyQuery = Select '["field1", "field2"] `From` MyTable `Where` \<condition\>
+```haskell
+type MyQuery = Select '["field1", "field2"] `From` MyTable `Where` <condition>
+```
 
 Where ```<condition>``` can include:
 
@@ -137,7 +145,7 @@ goals I have in mind:
   Then you would be free to deconstruct this type (using type families),
   transform it into another schema, generate customized `CREATE TABLE`
   statements if the (forthcoming) ones provided aren't good enough for your
-  back-end or use case... that sort of thing. As a somewhat contrived example,
+  back-end or use case... that sort of thing. As a somewhat contrived example:
   maybe, for who knows what reason, you never want to allow null values in your
   database. You can write a type family that can inspect every field in an
   arbitrary schema, replacing all the `Maybe a` with just `a`, like:
