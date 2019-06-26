@@ -56,7 +56,8 @@ module Database.Ribbit (
   -- * Transformations on Query Types
   ArgsType,
   ResultType,
-  
+  ValidField,
+
   -- * Query Rendering
   Render(..)
 
