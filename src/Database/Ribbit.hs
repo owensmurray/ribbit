@@ -11,10 +11,27 @@
 
 {- |
   This module attepts to define a type-level language for describing
-  database shcemas (i.e. schemas "as a type"), and the queries
-  that operate on them in such a way that the meaning of a query is
-  immediately obvious to anyone who knows SQL, and that can be extended
-  and deconstructed by library users for their own purposes.
+  database shcemas (i.e. schemas "as a type"), and the queries that
+  operate on them in such a way that:
+  
+  1) The schema and/or query is completely defined at the type level
+     (sans runtime arguments to query parameters).
+
+  2) The meaning of a schema and/or query is immediately obvious to
+     anyone who knows SQL, and
+
+  3) The schema and/or query can be extended, deconstructed, or
+     interpreted by third parties for their own purposes.
+
+  To that end, each schema is a new type, defined by you, using the
+  combinators provided by this library. The same goes for queries. Each
+  query is a separate type defined with combinators from this library.
+
+  We provide a PostgreSQL backend so that real work can be accomplished,
+  but if the backend is missing something you need, then the idea is
+  that you can use your own type families and type classes to extend
+  the schema and query languages, or interpret them differently for your
+  own needs including writing entirely new backends if need be.
 -}
 module Database.Ribbit (
   -- * Quick Start
@@ -80,11 +97,11 @@ import qualified GHC.TypeLits as Lit
 -- 
 -- > data Company
 --
--- (Note: It is not required that the type contain any data, but it can if
--- you like. Unlike some db frameworks, columns stored in the table
--- represented by this type is not directly tied to the Haskell record
--- fields it contains. It is mainly used as a type-level symbol to
--- reference your table.)
+-- (Note: It is not required that the type contain any data, but it can
+-- if you like. Unlike some db frameworks, the set of columns stored
+-- in the table represented by this type is not directly tied to the
+-- Haskell record fields it contains. It is mainly used as a type-level
+-- symbol to reference your table.)
 -- 
 -- And you need a type class instance 'Table':
 -- 
@@ -132,6 +149,7 @@ import qualified GHC.TypeLits as Lit
 -- 
 -- > -- Given a company name as a query parameter, return all the
 -- > -- employees that work at that company along with their salary.
+-- >
 -- > type MyQuery =
 -- >   Select '["e.name", "e.salary"]
 -- >   `From`
@@ -160,6 +178,37 @@ import qualified GHC.TypeLits as Lit
 -- | 'ResultType' MyQuery | 'Only' 'Text' ':>' 'Only' ('Maybe' 'Int') |
 -- +----------------------+-------------------------------------------+
 --
+-- The "Database.Ribbit.PostgreSQL" module provides a
+-- 'Database.Ribbit.PostgreSQL.query' function:
+-- 
+-- > query :: (
+-- >     MonadIO m,
+-- >     Render query,
+-- >     ToRow (ArgsType query),
+-- >     FromRow (ResultType query)
+-- >   )
+-- >   => Connection
+-- >   -> Proxy query
+-- >   -> ArgsType query
+-- >   -> m [ResultType query]
+-- 
+-- Notice that it accepts an @('ArgsType' query)@ argument, and returns a
+-- list of @('ResultType' query)@ values.
+-- 
+-- Therefore, we can invoke the query thusly:
+-- 
+-- > results <- query conn (Proxy :: Proxy MyQuery) (Only "Some Company")
+-- 
+-- The @('Only' "Some Company")@ argument fulfils the query parameters,
+-- and the results will be a list of rows which can be deconstructed
+-- using pattern matching. E.g.:
+-- 
+-- > sequence_
+-- >   [
+-- >     putStrLn (show name <> " - " <> show sallary)
+-- >     | (Only name :> Only salary) <- results
+-- >   ]
+
 
 
 {- | "SELECT" combinator, used for starting a @SELECT@ statement. -}
@@ -237,7 +286,20 @@ data Not a
 data (?)
 
 
-{- | Define a field in a database schema. -}
+{- |
+  Define a field in a database schema, where:
+
+  - @name@: is the name of the database column, expressed as a type-level
+    string literal, and
+
+  - @typ@: is the Haskell type whose values get stored in the column.
+
+  E.g:
+
+  - @'Field' "company_name" 'Text'@
+  - @'Field' "expiration_date" ('Maybe' 'Data.Time.Day')@
+
+-}
 data Field name typ
 
 
@@ -245,6 +307,25 @@ data Field name typ
   String two types together. 'Int' ':>' 'Int' ':>' 'Int' is similar in
   principal to the nested tuple ('Int', ('Int', 'Int')), but looks a
   whole lot nicer when the number of elements becomes large.
+
+  This is how you build up a schema from a collection of 'Field' types.
+
+  E.g.:
+
+  > Field "foo" Int
+  > :> Field "bar" Text
+  > :> Field "baz" (Maybe Text)
+
+  It also the mechanism by which this library builds up the Haskell
+  types for query parameters and resulting rows that get returned. So
+  if you have a query that accepts three text query parameters, that
+  type represented in Haskell is going to be @('Only' 'Text' ':>' 'Only'
+  'Text' ':>' 'Only' 'Text')@.
+
+  If that query returns rows that contain a Text, an Int, and a Text,
+  then the type of the rows will be @('Only' 'Text' ':>' 'Only' 'Int'
+  ':>' 'Only' 'Text')@.
+
 -}
 data a :> b = a :> b
   deriving (Eq, Ord, Show)
@@ -268,9 +349,27 @@ type family LookupType name schema context where
   LookupType name (_ :> more) context = LookupType name more context
   LookupType name a context = NotInSchema name context
 
+
+
+{- |
+  Type class for defining your own tables. The primary way for you to
+  introduce a new schema is to instantiate this type class for one of
+  your types.
+
+  E.g.:
+
+  > data MyTable
+  > instance Table MyTable where
+  >   type Name MyTable = "my_table"
+  >   type DBSchema MyTable =
+  >     Field "id" Int
+  >     :> Field "my_non_nullable_text_field" Text
+  >     :> Field "my_nullable_int_field" (Maybe Int)
+    
+-}
 class Table relation where
-  type DBSchema relation
   type Name relation :: Symbol
+  type DBSchema relation
 
 {- | Cross product -}
 instance (Table l, Table r, KnownSymbol lname, KnownSymbol rname) => Table (l `As` lname `X` r `As` rname) where
