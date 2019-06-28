@@ -1,15 +1,21 @@
 
 name:                ribbit
 version:             0.3.0.0
-synopsis:            ribbit
--- description:         
+synopsis:            Type-level Relational DB combinators.
+description:         Ribbit is yet another type safe relational database
+                     library for Haskell, heavily inspired by the
+                     amazing Servant library. The goal is to create a
+                     type-level language for defining table schemas "as
+                     a type", queries that operate on those schemas, and,
+                     tangentially, "backends" that can do something useful
+                     with those types like talk to an actual database.
 homepage:            https://github.com/owensmurray/ribbit
 license:             MIT
 license-file:        LICENSE
 author:              Rick Owens
 maintainer:          rick@owensmurray.com
 copyright:           2019 Owens Murray, LLC.
--- category:            
+category:            Database
 build-type:          Simple
 extra-source-files:  README.md
 cabal-version:       >=1.10
