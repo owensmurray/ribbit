@@ -57,6 +57,7 @@ module Database.Ribbit (
   ArgsType,
   ResultType,
   ValidField,
+  ProjectionType,
 
   -- * Query Rendering
   Render(..)
