@@ -11,10 +11,27 @@
 
 {- |
   This module attepts to define a type-level language for describing
-  database shcemas (i.e. schemas "as a type"), and the queries
-  that operate on them in such a way that the meaning of a query is
-  immediately obvious to anyone who knows SQL, and that can be extended
-  and deconstructed by library users for their own purposes.
+  database shcemas (i.e. schemas "as a type"), and the queries that
+  operate on them in such a way that:
+  
+  1) The schema and/or query is completely defined at the type level
+     (sans runtime arguments to query parameters).
+
+  2) The meaning of a schema and/or query is immediately obvious to
+     anyone who knows SQL, and
+
+  3) The schema and/or query can be extended, deconstructed, or
+     interpreted by third parties for their own purposes.
+
+  To that end, each schema is a new type, defined by you, using the
+  combinators provided by this library. The same goes for queries. Each
+  query is a separate type defined with combinators from this library.
+
+  We provide a PostgreSQL backend so that real work can be accomplished,
+  but if the backend is missing something you need, then the idea is
+  that you can use your own type families and type classes to extend
+  the schema and query languages, or interpret them differently for your
+  own needs including writing entirely new backends if need be.
 -}
 module Database.Ribbit (
   -- * Quick Start
@@ -27,6 +44,9 @@ module Database.Ribbit (
   -- ** Using a Query
   -- $usequery
 
+  -- ** Inserting values
+  -- $insert
+
   -- * Schema Definition Types
   (:>)(..),
   Table(..),
@@ -38,6 +58,9 @@ module Database.Ribbit (
   X,
   As,
   Where,
+
+  -- * Insert Combinators
+  InsertInto,
 
   -- ** Condition Conbinators
   And,
@@ -57,6 +80,7 @@ module Database.Ribbit (
   ArgsType,
   ResultType,
   ValidField,
+  ProjectionType,
 
   -- * Query Rendering
   Render(..)
@@ -71,6 +95,7 @@ import Data.Tuple.Only (Only)
 import Data.Type.Bool (If, type (||))
 import GHC.TypeLits (KnownSymbol, TypeError, ErrorMessage((:<>:),
   (:$$:), ShowType), AppendSymbol, Symbol)
+import qualified Data.Text as T
 import qualified GHC.TypeLits as Lit
 
 
@@ -79,11 +104,11 @@ import qualified GHC.TypeLits as Lit
 -- 
 -- > data Company
 --
--- (Note: It is not required that the type contain any data, but it can if
--- you like. Unlike some db frameworks, columns stored in the table
--- represented by this type is not directly tied to the Haskell record
--- fields it contains. It is mainly used as a type-level symbol to
--- reference your table.)
+-- (Note: It is not required that the type contain any data, but it can
+-- if you like. Unlike some db frameworks, the set of columns stored
+-- in the table represented by this type is not directly tied to the
+-- Haskell record fields it contains. It is mainly used as a type-level
+-- symbol to reference your table.)
 -- 
 -- And you need a type class instance 'Table':
 -- 
@@ -131,6 +156,7 @@ import qualified GHC.TypeLits as Lit
 -- 
 -- > -- Given a company name as a query parameter, return all the
 -- > -- employees that work at that company along with their salary.
+-- >
 -- > type MyQuery =
 -- >   Select '["e.name", "e.salary"]
 -- >   `From`
@@ -159,6 +185,79 @@ import qualified GHC.TypeLits as Lit
 -- | 'ResultType' MyQuery | 'Only' 'Text' ':>' 'Only' ('Maybe' 'Int') |
 -- +----------------------+-------------------------------------------+
 --
+-- The "Database.Ribbit.PostgreSQL" module provides a
+-- 'Database.Ribbit.PostgreSQL.query' function:
+-- 
+-- > query :: (
+-- >     MonadIO m,
+-- >     Render query,
+-- >     ToRow (ArgsType query),
+-- >     FromRow (ResultType query)
+-- >   )
+-- >   => Connection
+-- >   -> Proxy query
+-- >   -> ArgsType query
+-- >   -> m [ResultType query]
+-- 
+-- Notice that it accepts an @('ArgsType' query)@ argument, and returns a
+-- list of @('ResultType' query)@ values.
+-- 
+-- Therefore, we can invoke the query thusly:
+-- 
+-- > results <- query conn (Proxy :: Proxy MyQuery) (Only "Some Company")
+-- 
+-- The @('Only' "Some Company")@ argument fulfils the query parameters,
+-- and the results will be a list of rows which can be deconstructed
+-- using pattern matching. E.g.:
+-- 
+-- > sequence_
+-- >   [
+-- >     putStrLn (show name <> " - " <> show sallary)
+-- >     | (Only name :> Only salary) <- results
+-- >   ]
+
+-- $insert
+-- To insert values into our example tables above, we need to write a
+-- couple of insert statements:
+-- 
+-- E.g.:
+-- 
+-- > type InsertCompany = InsertInto Company '["id", "name", "address"]
+-- > type InsertEmployee = InsertInto Employee '["company_id", "id", "name", "birth_date"]
+--
+-- That's it really.  Insert statements are much simpler than select
+-- queries.  These statement will automatically be parameterized according
+-- to the listed fields.
+--
+-- There is a little bit of important nuance here: Note that
+-- 'InsertEmployee' omits the "salary" field. That field is nullable,
+-- and so the database will insert a null value when this insert statement
+-- is used.
+--
+-- This can be particularly useful for allowing the database to supply
+-- default values, such as auto-incremented id fields. This library is
+-- not (yet) sophisticated enough understand which fields can safely be
+-- omitted, so it lets you omit any field. If you omit a field for which
+-- the database cannot supply a default value then that will result in a
+-- runtime error. This is a problem we plan to fix in a future version. On
+-- the other hand if you try to include a field that is not part of the
+-- schema, you will get a /compile time/ error like you are supposed to.
+--
+-- To execute these insert statements, use "Database.Ribbit.PostgreSQL"'s
+-- 'Database.Ribbit.PostgreSQL.execute' function:
+--
+-- > do
+-- >   let
+-- >     myBirthday :: Day
+-- >     myBirthday = ...
+-- >   execute
+-- >     conn
+-- >     (Proxy :: Proxy InsertCompany)
+-- >     (Only 1 :> Only "Owens Murray" :> Only (Just "Austin, Tx"))
+-- >   execute
+-- >     conn
+-- >     (Proxy :: Proxy InsertEmployee)
+-- >     (Only 1 :> Only 1 :> Only "Rick" :> Only myBirthday)
 
 
 {- | "SELECT" combinator, used for starting a @SELECT@ statement. -}
@@ -236,7 +335,20 @@ data Not a
 data (?)
 
 
-{- | Define a field in a database schema. -}
+{- |
+  Define a field in a database schema, where:
+
+  - @name@: is the name of the database column, expressed as a type-level
+    string literal, and
+
+  - @typ@: is the Haskell type whose values get stored in the column.
+
+  E.g:
+
+  - @'Field' "company_name" 'Text'@
+  - @'Field' "expiration_date" ('Maybe' 'Data.Time.Day')@
+
+-}
 data Field name typ
 
 
@@ -244,6 +356,25 @@ data Field name typ
   String two types together. 'Int' ':>' 'Int' ':>' 'Int' is similar in
   principal to the nested tuple ('Int', ('Int', 'Int')), but looks a
   whole lot nicer when the number of elements becomes large.
+
+  This is how you build up a schema from a collection of 'Field' types.
+
+  E.g.:
+
+  > Field "foo" Int
+  > :> Field "bar" Text
+  > :> Field "baz" (Maybe Text)
+
+  It also the mechanism by which this library builds up the Haskell
+  types for query parameters and resulting rows that get returned. So
+  if you have a query that accepts three text query parameters, that
+  type represented in Haskell is going to be @('Only' 'Text' ':>' 'Only'
+  'Text' ':>' 'Only' 'Text')@.
+
+  If that query returns rows that contain a Text, an Int, and a Text,
+  then the type of the rows will be @('Only' 'Text' ':>' 'Only' 'Int'
+  ':>' 'Only' 'Text')@.
+
 -}
 data a :> b = a :> b
   deriving (Eq, Ord, Show)
@@ -267,9 +398,27 @@ type family LookupType name schema context where
   LookupType name (_ :> more) context = LookupType name more context
   LookupType name a context = NotInSchema name context
 
+
+
+{- |
+  Type class for defining your own tables. The primary way for you to
+  introduce a new schema is to instantiate this type class for one of
+  your types.
+
+  E.g.:
+
+  > data MyTable
+  > instance Table MyTable where
+  >   type Name MyTable = "my_table"
+  >   type DBSchema MyTable =
+  >     Field "id" Int
+  >     :> Field "my_non_nullable_text_field" Text
+  >     :> Field "my_nullable_int_field" (Maybe Int)
+    
+-}
 class Table relation where
-  type DBSchema relation
   type Name relation :: Symbol
+  type DBSchema relation
 
 {- | Cross product -}
 instance (Table l, Table r, KnownSymbol lname, KnownSymbol rname) => Table (l `As` lname `X` r `As` rname) where
@@ -320,6 +469,11 @@ type family ResultType query where
 type family ArgsType query where
   ArgsType (_ `From` relation `Where` conditions) =
     ArgsType (DBSchema relation, conditions)
+  ArgsType (InsertInto relation '[]) =
+    TypeError ('Lit.Text "Insert statement must specify at least one column.")
+  ArgsType (InsertInto relation fields) =
+    ProjectionType fields (DBSchema relation)
+
   ArgsType (schema, And a b) =
     StripUnit (Flatten (ArgsType (schema, a) :> ArgsType (schema, b)))
   ArgsType (schema, Or a b) =
@@ -405,11 +559,8 @@ instance (Render fields) => Render (Select fields) where
     <> render (Proxy @fields)
 
 {- Field list -}
-instance {-# OVERLAPS #-} (KnownSymbol field) => Render '[field] where
-  render _proxy = symbolVal (Proxy @field)
-instance (KnownSymbol field, Render more) => Render (field:more) where
-  render _proxy =
-    symbolVal (Proxy @field) <>  ", " <> render (Proxy @more)
+instance (KnownSymbol field, ReflectFields (field:more)) => Render (field:more) where
+  render _proxy = T.intercalate "," (reflectFields (Proxy @(field:more)))
 
 {- FROM -}
 instance (KnownSymbol (Name relation), Render proj, Table relation) => Render (From proj relation) where
@@ -501,5 +652,29 @@ instance (KnownSymbol a) => Render (Expr a) where
 {- (?) -}
 instance Render (?) where
   render _proxy = "?"
+
+{- INSERT -}
+instance (ReflectFields fields, KnownSymbol (Name table)) => Render (InsertInto table fields) where
+  render _proxy =
+    let
+      fields :: [Text]
+      fields = reflectFields (Proxy @fields)
+    in
+      "insert into " <> symbolVal (Proxy @(Name table))
+      <> " (" <> T.intercalate ", " fields <> ")"
+      <> " values (" <> T.intercalate ", " (const "?" <$> fields) <> ");"
+
+
+{- | Insert statement. -}
+data InsertInto table fields
+
+
+{- | Convert a type-level list of strings into a value. -}
+class ReflectFields a where
+  reflectFields :: proxy a -> [Text]
+instance ReflectFields '[] where
+  reflectFields _proxy = []
+instance (KnownSymbol a, ReflectFields more) => ReflectFields (a:more) where
+  reflectFields _proxy = symbolVal (Proxy @a) : reflectFields (Proxy @more)
 
 

@@ -19,6 +19,7 @@ module Database.Ribbit.PostgreSQL (
 
   -- * Performing queries.
   query,
+  execute,
 
   -- * Creating tables.
   createTable,
@@ -32,7 +33,7 @@ module Database.Ribbit.PostgreSQL (
   HasFields,
   HasPsqlTypes,
   HasIsNullable,
-  ValidKey,
+  IsSubset,
   FromRow,
   ToRow,
 ) where
@@ -40,6 +41,7 @@ module Database.Ribbit.PostgreSQL (
 
 import Control.Monad (void)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Data.Int (Int64)
 import Data.Proxy (Proxy(Proxy))
 import Data.String (fromString, IsString)
 import Data.Text (Text)
@@ -79,6 +81,24 @@ query conn theQuery args =
       (Wrap args)
 
 
+{- | Execute a statement. -}
+execute :: (
+    MonadIO m,
+    ToRow (ArgsType query),
+    Render query
+  )
+  => Connection
+  -> Proxy query
+  -> ArgsType query
+  -> m Int64
+execute conn theQuery args =
+  liftIO $
+    PG.execute
+      conn
+      ((fromString . T.unpack . render) theQuery)
+      (Wrap args)
+
+
 {- |
   Create the indicated table in the database.
 
@@ -89,7 +109,7 @@ createTable :: forall proxy1 proxy2 key table m. (
     HasPsqlTypes (DBSchema table),
     HasFields (DBSchema table),
     HasFields key,
-    ValidKey key (DBSchema table) ~ 'True,
+    IsSubset key (DBSchema table) ~ 'True,
     MonadIO m
   )
   => Connection
@@ -141,7 +161,7 @@ createTableStatement :: forall proxy1 proxy2 table key. (
     HasPsqlTypes (DBSchema table),
     HasFields (DBSchema table),
     HasFields key,
-    ValidKey key (DBSchema table) ~ 'True
+    IsSubset key (DBSchema table) ~ 'True
   )
   => proxy1 key
   -> proxy2 table
@@ -275,13 +295,13 @@ symbolVal :: (KnownSymbol n, IsString a) => proxy n -> a
 symbolVal = fromString . Lit.symbolVal
 
 
-{- | Make sure the proposed primary key is legit. -}
-type family ValidKey fields schema where
-  ValidKey '[] schema = 'True
-  ValidKey (field:more) schema =
+{- | Make sure the fields in the list are actually part of the schema. -}
+type family IsSubset fields schema where
+  IsSubset '[] schema = 'True
+  IsSubset (field:more) schema =
     If
       (ValidField field schema)
-      (ValidKey more schema)
+      (IsSubset more schema)
       (
         TypeError (
           'Lit.Text "field "
