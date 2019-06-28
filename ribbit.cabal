@@ -1,6 +1,6 @@
 
 name:                ribbit
-version:             0.3.0.0
+version:             0.3.0.1
 synopsis:            Type-level Relational DB combinators.
 description:         Ribbit is yet another type safe relational database
                      library for Haskell, heavily inspired by the
