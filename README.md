@@ -7,8 +7,10 @@
             - [Cross product](#cross-product)
             - [Conditionals](#conditionals)
             - [Limited `CREATE TABLE` support.](#limited-create-table-support)
+            - [`INSERT INTO` support.](#insert-into-support)
     - [Roadmap](#roadmap)
-        - [`INSERT INTO` support.](#insert-into-support)
+        - [DELETE support](#delete-support)
+        - [UPDATE support](#update-support)
         - [Flesh out Haskell to PostgreSQL type mapping.](#flesh-out-haskell-to-postgresql-type-mapping)
     - [How it compares with other libraries.](#how-it-compares-with-other-libraries)
     - [The name: Ribbit](#the-name-ribbit)
@@ -114,14 +116,30 @@ What *IS* supported already is:
 - Compound primary keys. I.e. primary keys consisting of more than one
   component.
 
+#### `INSERT INTO` support.
+
+Basic inserts are supported:
+
+```haskell
+type MyInsert = InsertInto PeopleTable '["id", "name", "age"]
+
+execute
+  conn
+  (Proxy :: Proxy MyInsert)
+  (Only 1 :> Only "Bob Marley" :> Only 36)
+```
 
 ## Roadmap
 
 This is what I plan to work on next:
 
-### `INSERT INTO` support.
+### DELETE support
 
-Obviously, we want to do more with our DB than just read from it.
+Support delete operations.
+
+### UPDATE support
+
+Support update operations.
 
 ### Flesh out Haskell to PostgreSQL type mapping.
 
