@@ -44,6 +44,9 @@ module Database.Ribbit (
   -- ** Using a Query
   -- $usequery
 
+  -- ** Inserting values
+  -- $insert
+
   -- * Schema Definition Types
   (:>)(..),
   Table(..),
@@ -55,6 +58,9 @@ module Database.Ribbit (
   X,
   As,
   Where,
+
+  -- * Insert Combinators
+  InsertInto,
 
   -- ** Condition Conbinators
   And,
@@ -210,6 +216,48 @@ import qualified GHC.TypeLits as Lit
 -- >     | (Only name :> Only salary) <- results
 -- >   ]
 
+-- $insert
+-- To insert values into our example tables above, we need to write a
+-- couple of insert statements:
+-- 
+-- E.g.:
+-- 
+-- > type InsertCompany = InsertInto Company '["id", "name", "address"]
+-- > type InsertEmployee = InsertInto Employee '["company_id", "id", "name", "birth_date"]
+--
+-- That's it really.  Insert statements are much simpler than select
+-- queries.  These statement will automatically be parameterized according
+-- to the listed fields.
+--
+-- There is a little bit of important nuance here: Note that
+-- 'InsertEmployee' omits the "salary" field. That field is nullable,
+-- and so the database will insert a null value when this insert statement
+-- is used.
+--
+-- This can be particularly useful for allowing the database to supply
+-- default values, such as auto-incremented id fields. This library is
+-- not (yet) sophisticated enough understand which fields can safely be
+-- omitted, so it lets you omit any field. If you omit a field for which
+-- the database cannot supply a default value then that will result in a
+-- runtime error. This is a problem we plan to fix in a future version. On
+-- the other hand if you try to include a field that is not part of the
+-- schema, you will get a /compile time/ error like you are supposed to.
+--
+-- To execute these insert statements, use "Database.Ribbit.PostgreSQL"'s
+-- 'Database.Ribbit.PostgreSQL.execute' function:
+--
+-- > do
+-- >   let
+-- >     myBirthday :: Day
+-- >     myBirthday = ...
+-- >   execute
+-- >     conn
+-- >     (Proxy :: Proxy InsertCompany)
+-- >     (Only 1 :> Only "Owens Murray" :> Only (Just "Austin, Tx"))
+-- >   execute
+-- >     conn
+-- >     (Proxy :: Proxy InsertEmployee)
+-- >     (Only 1 :> Only 1 :> Only "Rick" :> Only myBirthday)
 
 
 {- | "SELECT" combinator, used for starting a @SELECT@ statement. -}
@@ -421,6 +469,11 @@ type family ResultType query where
 type family ArgsType query where
   ArgsType (_ `From` relation `Where` conditions) =
     ArgsType (DBSchema relation, conditions)
+  ArgsType (InsertInto relation '[]) =
+    TypeError ('Lit.Text "Insert statement must specify at least one column.")
+  ArgsType (InsertInto relation fields) =
+    ProjectionType fields (DBSchema relation)
+
   ArgsType (schema, And a b) =
     StripUnit (Flatten (ArgsType (schema, a) :> ArgsType (schema, b)))
   ArgsType (schema, Or a b) =
@@ -599,6 +652,21 @@ instance (KnownSymbol a) => Render (Expr a) where
 {- (?) -}
 instance Render (?) where
   render _proxy = "?"
+
+{- INSERT -}
+instance (ReflectFields fields, KnownSymbol (Name table)) => Render (InsertInto table fields) where
+  render _proxy =
+    let
+      fields :: [Text]
+      fields = reflectFields (Proxy @fields)
+    in
+      "insert into " <> symbolVal (Proxy @(Name table))
+      <> " (" <> T.intercalate ", " fields <> ")"
+      <> " values (" <> T.intercalate ", " (const "?" <$> fields) <> ");"
+
+
+{- | Insert statement. -}
+data InsertInto table fields
 
 
 {- | Convert a type-level list of strings into a value. -}

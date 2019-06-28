@@ -19,6 +19,7 @@ module Database.Ribbit.PostgreSQL (
 
   -- * Performing queries.
   query,
+  execute,
 
   -- * Creating tables.
   createTable,
@@ -40,6 +41,7 @@ module Database.Ribbit.PostgreSQL (
 
 import Control.Monad (void)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Data.Int (Int64)
 import Data.Proxy (Proxy(Proxy))
 import Data.String (fromString, IsString)
 import Data.Text (Text)
@@ -75,6 +77,24 @@ query conn theQuery args =
   liftIO . (fmap . fmap) unWrap $
     PG.query
       conn 
+      ((fromString . T.unpack . render) theQuery)
+      (Wrap args)
+
+
+{- | Execute a statement. -}
+execute :: (
+    MonadIO m,
+    ToRow (ArgsType query),
+    Render query
+  )
+  => Connection
+  -> Proxy query
+  -> ArgsType query
+  -> m Int64
+execute conn theQuery args =
+  liftIO $
+    PG.execute
+      conn
       ((fromString . T.unpack . render) theQuery)
       (Wrap args)
 
