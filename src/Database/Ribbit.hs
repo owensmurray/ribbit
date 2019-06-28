@@ -89,6 +89,7 @@ import Data.Tuple.Only (Only)
 import Data.Type.Bool (If, type (||))
 import GHC.TypeLits (KnownSymbol, TypeError, ErrorMessage((:<>:),
   (:$$:), ShowType), AppendSymbol, Symbol)
+import qualified Data.Text as T
 import qualified GHC.TypeLits as Lit
 
 
@@ -505,11 +506,8 @@ instance (Render fields) => Render (Select fields) where
     <> render (Proxy @fields)
 
 {- Field list -}
-instance {-# OVERLAPS #-} (KnownSymbol field) => Render '[field] where
-  render _proxy = symbolVal (Proxy @field)
-instance (KnownSymbol field, Render more) => Render (field:more) where
-  render _proxy =
-    symbolVal (Proxy @field) <>  ", " <> render (Proxy @more)
+instance (KnownSymbol field, ReflectFields (field:more)) => Render (field:more) where
+  render _proxy = T.intercalate "," (reflectFields (Proxy @(field:more)))
 
 {- FROM -}
 instance (KnownSymbol (Name relation), Render proj, Table relation) => Render (From proj relation) where
@@ -601,5 +599,14 @@ instance (KnownSymbol a) => Render (Expr a) where
 {- (?) -}
 instance Render (?) where
   render _proxy = "?"
+
+
+{- | Convert a type-level list of strings into a value. -}
+class ReflectFields a where
+  reflectFields :: proxy a -> [Text]
+instance ReflectFields '[] where
+  reflectFields _proxy = []
+instance (KnownSymbol a, ReflectFields more) => ReflectFields (a:more) where
+  reflectFields _proxy = symbolVal (Proxy @a) : reflectFields (Proxy @more)
 
 
