@@ -8,8 +8,8 @@
             - [Conditionals](#conditionals)
             - [Limited `CREATE TABLE` support.](#limited-create-table-support)
             - [`INSERT INTO` support.](#insert-into-support)
+            - [`DELETE FROM` support.](#delete-from-support)
     - [Roadmap](#roadmap)
-        - [DELETE support](#delete-support)
         - [UPDATE support](#update-support)
         - [Flesh out Haskell to PostgreSQL type mapping.](#flesh-out-haskell-to-postgresql-type-mapping)
     - [How it compares with other libraries.](#how-it-compares-with-other-libraries)
@@ -69,7 +69,7 @@ type MyQuery = Select '["field1", "field2"] `From` MyTable
 We support queries of the form:
 
 ```haskell
-type MyQuery = Select '["t1.field1", "t2.field2"] `From` MyTable1 `As` "t1" `X` MyTable2 `As` "t2"
+type MyQuery = Select '["t1.field1", "t2.field2"] `From` '[MyTable1 `As` "t1", MyTable2 `As` "t2"]
 ```
 
 #### Conditionals
@@ -129,13 +129,28 @@ execute
   (Only 1 :> Only "Bob Marley" :> Only 36)
 ```
 
+#### `DELETE FROM` support.
+
+Basic deletes are supported:
+
+```haskell
+type MyDeleteEveryone = DeleteFrom PeopleTable
+type MyDeleteById = DeleteFrom PeopleTable `Where` id `Equals` (?)
+
+execute
+  conn
+  (Proxy :: Proxy MyDeleteEveryone)
+  ()
+
+execute
+  conn
+  (Proxy :: Proxy MyDeleteById)
+  (Only 1)
+```
+
 ## Roadmap
 
 This is what I plan to work on next:
-
-### DELETE support
-
-Support delete operations.
 
 ### UPDATE support
 
@@ -181,11 +196,11 @@ goals I have in mind:
 
   Then you would be free to deconstruct this type (using type families),
   transform it into another schema, generate customized `CREATE TABLE`
-  statements if the (forthcoming) ones provided aren't good enough for your
-  back-end or use case... that sort of thing. As a somewhat contrived example:
-  maybe, for who knows what reason, you never want to allow null values in your
-  database. You can write a type family that can inspect every field in an
-  arbitrary schema, replacing all the `Maybe a` with just `a`, like:
+  statements if the ones provided aren't good enough for your back-end or
+  use case... that sort of thing. As a somewhat contrived example: maybe,
+  for who knows what reason, you never want to allow null values in your
+  database. You can write a type family that can inspect every field in
+  an arbitrary schema, replacing all the `Maybe a` with just `a`, like:
 
   ```haskell
   -- With -XPolyKinds

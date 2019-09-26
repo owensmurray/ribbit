@@ -47,6 +47,9 @@ module Database.Ribbit (
   -- ** Inserting values
   -- $insert
 
+  -- ** Deleting values
+  -- $delete
+
   -- * Schema Definition Types
   (:>)(..),
   Table(..),
@@ -55,12 +58,14 @@ module Database.Ribbit (
   -- * Query Combinators
   Select,
   From,
-  X,
   As,
   Where,
 
   -- * Insert Combinators
   InsertInto,
+  
+  -- * Delete Combinators
+  DeleteFrom,
 
   -- ** Condition Conbinators
   And,
@@ -160,7 +165,10 @@ import qualified GHC.TypeLits as Lit
 -- > type MyQuery =
 -- >   Select '["e.name", "e.salary"]
 -- >   `From`
--- >     Company `As` "c" `X` Employee `As` "e"
+-- >       '[
+-- >         Company `As` "c",
+-- >         Employee `As` "e"
+-- >       ]
 -- >   `Where`
 -- >     "c.id" `Equals` "e.company_id"
 -- >     `And` "c.name" `Equals` (?)
@@ -259,6 +267,34 @@ import qualified GHC.TypeLits as Lit
 -- >     (Proxy :: Proxy InsertEmployee)
 -- >     (Only 1 :> Only 1 :> Only "Rick" :> Only myBirthday)
 
+-- $delete
+-- Deleting a value is similar to inserting a value, but simpler because
+-- you only have to specify the delete conditions (if there are any).
+-- 
+-- e.g.:
+--  
+-- > type DeleteAllEmployees = DeleteFrom Employee
+-- > type DeleteEmployeeById =
+-- >   DeleteFrom Employee
+-- >   `Where` "id" `Equals` (?)
+-- 
+-- Then just execute the query, providing the appropriate query params.
+-- 
+-- > do
+-- >   let
+-- >     employeeId :: Int
+-- >     employeeId = ...
+-- >   execute
+-- >     conn
+-- >     (Proxy :: Proxy DeleteEmployeeById)
+-- >     (Only employeeId)
+-- >
+-- >   -- Or maybe delete all employees.
+-- >   execute
+-- >     conn
+-- >     (Proxy :: Proxy DeleteAllEmployees)
+-- >     ()
+
 
 {- | "SELECT" combinator, used for starting a @SELECT@ statement. -}
 data Select fields
@@ -315,11 +351,6 @@ infixr 8 `And`
 {- | "OR" combinator for conditions. -}
 data Or l r
 infixr 7 `Or`
-
-
-{- | Cross product operator for FROM clauses. -}
-data X l r
-infixr 7 `X`
 
 
 {- | "AS" combinator, used for attaching a name to a table in a FROM clause. -}
@@ -399,7 +430,6 @@ type family LookupType name schema context where
   LookupType name a context = NotInSchema name context
 
 
-
 {- |
   Type class for defining your own tables. The primary way for you to
   introduce a new schema is to instantiate this type class for one of
@@ -421,20 +451,42 @@ class Table relation where
   type DBSchema relation
 
 {- | Cross product -}
-instance (Table l, Table r, KnownSymbol lname, KnownSymbol rname) => Table (l `As` lname `X` r `As` rname) where
-  type DBSchema (l `As` lname `X` r `As` rname) =
+instance
+    (Table table, KnownSymbol name)
+  =>
+    Table ((table `As` name) : moreTables)
+  where
+    type DBSchema ((table `As` name) : moreTables) =
+      CrossProductSchema ((table `As` name) : moreTables)
+    type Name ((table `As` name) : moreTables) =
+      CrossProductName ((table `As` name) : moreTables)
+
+
+{- | Produce the schema of a cross product. -}
+type family CrossProductSchema cp where
+  CrossProductSchema '[table `as` name] =
     Flatten (
-      AliasAs lname (DBSchema l)
-      :> AliasAs rname (DBSchema r)
+      AliasAs name (DBSchema table)
     )
-  type Name (l `As` lname `X` r `As` rname) =
-    Name l
+  CrossProductSchema ((table `As` name) : moreTables) =
+    Flatten (
+      AliasAs name (DBSchema table)
+      :> CrossProductSchema moreTables
+    )
+
+
+{- | Product the renderable "name" of a cross product. -}
+type family CrossProductName cp where
+  CrossProductName '[table `As` name] = 
+    Name table
     `AppendSymbol` " as "
-    `AppendSymbol` lname
+    `AppendSymbol` name
+  CrossProductName ((table `As` name) : moreTables) = 
+    Name table
+    `AppendSymbol` " as "
+    `AppendSymbol` name
     `AppendSymbol` ", "
-    `AppendSymbol` Name r
-    `AppendSymbol` " as "
-    `AppendSymbol` rname
+    `AppendSymbol` CrossProductName moreTables
 
 
 {- |
@@ -468,6 +520,8 @@ type family ResultType query where
 -}
 type family ArgsType query where
   ArgsType (_ `From` relation `Where` conditions) =
+    ArgsType (DBSchema relation, conditions)
+  ArgsType (DeleteFrom relation `Where` conditions) =
     ArgsType (DBSchema relation, conditions)
   ArgsType (InsertInto relation '[]) =
     TypeError ('Lit.Text "Insert statement must specify at least one column.")
@@ -654,15 +708,25 @@ instance Render (?) where
   render _proxy = "?"
 
 {- INSERT -}
-instance (ReflectFields fields, KnownSymbol (Name table)) => Render (InsertInto table fields) where
+instance
+    (ReflectFields fields, KnownSymbol (Name table))
+  =>
+    Render (InsertInto table fields)
+  where
+    render _proxy =
+      let
+        fields :: [Text]
+        fields = reflectFields (Proxy @fields)
+      in
+        "insert into " <> symbolVal (Proxy @(Name table))
+        <> " (" <> T.intercalate ", " fields <> ")"
+        <> " values (" <> T.intercalate ", " (const "?" <$> fields) <> ");"
+
+
+{- DELETE -}
+instance (KnownSymbol (Name table)) => Render (DeleteFrom table) where
   render _proxy =
-    let
-      fields :: [Text]
-      fields = reflectFields (Proxy @fields)
-    in
-      "insert into " <> symbolVal (Proxy @(Name table))
-      <> " (" <> T.intercalate ", " fields <> ")"
-      <> " values (" <> T.intercalate ", " (const "?" <$> fields) <> ");"
+    "delete from " <> symbolVal (Proxy @(Name table))
 
 
 {- | Insert statement. -}
@@ -676,5 +740,9 @@ instance ReflectFields '[] where
   reflectFields _proxy = []
 instance (KnownSymbol a, ReflectFields more) => ReflectFields (a:more) where
   reflectFields _proxy = symbolVal (Proxy @a) : reflectFields (Proxy @more)
+
+
+{- | Delete statement. -}
+data DeleteFrom table
 
 
