@@ -8,8 +8,8 @@
             - [Conditionals](#conditionals)
             - [Limited `CREATE TABLE` support.](#limited-create-table-support)
             - [`INSERT INTO` support.](#insert-into-support)
+            - [`DELETE FROM` support.](#delete-from-support)
     - [Roadmap](#roadmap)
-        - [DELETE support](#delete-support)
         - [UPDATE support](#update-support)
         - [Flesh out Haskell to PostgreSQL type mapping.](#flesh-out-haskell-to-postgresql-type-mapping)
     - [How it compares with other libraries.](#how-it-compares-with-other-libraries)
@@ -129,13 +129,28 @@ execute
   (Only 1 :> Only "Bob Marley" :> Only 36)
 ```
 
+#### `DELETE FROM` support.
+
+Basic deletes are supported:
+
+```haskell
+type MyDeleteEveryone = DeleteFrom PeopleTable
+type MyDeleteById = DeleteFrom PeopleTable `Where` id `Equals` (?)
+
+execute
+  conn
+  (Proxy :: Proxy MyDeleteEveryone)
+  ()
+
+execute
+  conn
+  (Proxy :: Proxy MyDeleteById)
+  (Only 1)
+```
+
 ## Roadmap
 
 This is what I plan to work on next:
-
-### DELETE support
-
-Support delete operations.
 
 ### UPDATE support
 

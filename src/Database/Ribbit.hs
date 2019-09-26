@@ -47,6 +47,9 @@ module Database.Ribbit (
   -- ** Inserting values
   -- $insert
 
+  -- ** Deleting values
+  -- $delete
+
   -- * Schema Definition Types
   (:>)(..),
   Table(..),
@@ -60,6 +63,9 @@ module Database.Ribbit (
 
   -- * Insert Combinators
   InsertInto,
+  
+  -- * Delete Combinators
+  DeleteFrom,
 
   -- ** Condition Conbinators
   And,
@@ -260,6 +266,34 @@ import qualified GHC.TypeLits as Lit
 -- >     conn
 -- >     (Proxy :: Proxy InsertEmployee)
 -- >     (Only 1 :> Only 1 :> Only "Rick" :> Only myBirthday)
+
+-- $delete
+-- Deleting a value is similar to inserting a value, but simpler because
+-- you only have to specify the delete conditions (if there are any).
+-- 
+-- e.g.:
+--  
+-- > type DeleteAllEmployees = DeleteFrom Employee
+-- > type DeleteEmployeeById =
+-- >   DeleteFrom Employee
+-- >   `Where` "id" `Equals` (?)
+-- 
+-- Then just execute the query, providing the appropriate query params.
+-- 
+-- > do
+-- >   let
+-- >     employeeId :: Int
+-- >     employeeId = ...
+-- >   execute
+-- >     conn
+-- >     (Proxy :: Proxy DeleteEmployeeById)
+-- >     (Only employeeId)
+-- >
+-- >   -- Or maybe delete all employees.
+-- >   execute
+-- >     conn
+-- >     (Proxy :: Proxy DeleteAllEmployees)
+-- >     ()
 
 
 {- | "SELECT" combinator, used for starting a @SELECT@ statement. -}
@@ -487,6 +521,8 @@ type family ResultType query where
 type family ArgsType query where
   ArgsType (_ `From` relation `Where` conditions) =
     ArgsType (DBSchema relation, conditions)
+  ArgsType (DeleteFrom relation `Where` conditions) =
+    ArgsType (DBSchema relation, conditions)
   ArgsType (InsertInto relation '[]) =
     TypeError ('Lit.Text "Insert statement must specify at least one column.")
   ArgsType (InsertInto relation fields) =
@@ -687,6 +723,12 @@ instance
         <> " values (" <> T.intercalate ", " (const "?" <$> fields) <> ");"
 
 
+{- DELETE -}
+instance (KnownSymbol (Name table)) => Render (DeleteFrom table) where
+  render _proxy =
+    "delete from " <> symbolVal (Proxy @(Name table))
+
+
 {- | Insert statement. -}
 data InsertInto table fields
 
@@ -698,5 +740,9 @@ instance ReflectFields '[] where
   reflectFields _proxy = []
 instance (KnownSymbol a, ReflectFields more) => ReflectFields (a:more) where
   reflectFields _proxy = symbolVal (Proxy @a) : reflectFields (Proxy @more)
+
+
+{- | Delete statement. -}
+data DeleteFrom table
 
 
