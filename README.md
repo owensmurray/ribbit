@@ -69,7 +69,7 @@ type MyQuery = Select '["field1", "field2"] `From` MyTable
 We support queries of the form:
 
 ```haskell
-type MyQuery = Select '["t1.field1", "t2.field2"] `From` MyTable1 `As` "t1" `X` MyTable2 `As` "t2"
+type MyQuery = Select '["t1.field1", "t2.field2"] `From` '[MyTable1 `As` "t1", MyTable2 `As` "t2"]
 ```
 
 #### Conditionals

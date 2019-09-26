@@ -55,7 +55,6 @@ module Database.Ribbit (
   -- * Query Combinators
   Select,
   From,
-  X,
   As,
   Where,
 
@@ -160,7 +159,10 @@ import qualified GHC.TypeLits as Lit
 -- > type MyQuery =
 -- >   Select '["e.name", "e.salary"]
 -- >   `From`
--- >     Company `As` "c" `X` Employee `As` "e"
+-- >       '[
+-- >         Company `As` "c",
+-- >         Employee `As` "e"
+-- >       ]
 -- >   `Where`
 -- >     "c.id" `Equals` "e.company_id"
 -- >     `And` "c.name" `Equals` (?)
@@ -317,11 +319,6 @@ data Or l r
 infixr 7 `Or`
 
 
-{- | Cross product operator for FROM clauses. -}
-data X l r
-infixr 7 `X`
-
-
 {- | "AS" combinator, used for attaching a name to a table in a FROM clause. -}
 data As relation name
 infix 8 `As`
@@ -421,23 +418,41 @@ class Table relation where
 
 {- | Cross product -}
 instance
-    (Table l, Table r, KnownSymbol lname, KnownSymbol rname)
+    (Table table, KnownSymbol name)
   =>
-    Table (l `As` lname `X` r `As` rname)
+    Table ((table `As` name) : moreTables)
   where
-    type DBSchema (l `As` lname `X` r `As` rname) =
-      Flatten (
-        AliasAs lname (DBSchema l)
-        :> AliasAs rname (DBSchema r)
-      )
-    type Name (l `As` lname `X` r `As` rname) =
-      Name l
-      `AppendSymbol` " as "
-      `AppendSymbol` lname
-      `AppendSymbol` ", "
-      `AppendSymbol` Name r
-      `AppendSymbol` " as "
-      `AppendSymbol` rname
+    type DBSchema ((table `As` name) : moreTables) =
+      CrossProductSchema ((table `As` name) : moreTables)
+    type Name ((table `As` name) : moreTables) =
+      CrossProductName ((table `As` name) : moreTables)
+
+
+{- | Produce the schema of a cross product. -}
+type family CrossProductSchema cp where
+  CrossProductSchema '[table `as` name] =
+    Flatten (
+      AliasAs name (DBSchema table)
+    )
+  CrossProductSchema ((table `As` name) : moreTables) =
+    Flatten (
+      AliasAs name (DBSchema table)
+      :> CrossProductSchema moreTables
+    )
+
+
+{- | Product the renderable "name" of a cross product. -}
+type family CrossProductName cp where
+  CrossProductName '[table `As` name] = 
+    Name table
+    `AppendSymbol` " as "
+    `AppendSymbol` name
+  CrossProductName ((table `As` name) : moreTables) = 
+    Name table
+    `AppendSymbol` " as "
+    `AppendSymbol` name
+    `AppendSymbol` ", "
+    `AppendSymbol` CrossProductName moreTables
 
 
 {- |
