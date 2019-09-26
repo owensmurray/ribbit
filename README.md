@@ -181,11 +181,11 @@ goals I have in mind:
 
   Then you would be free to deconstruct this type (using type families),
   transform it into another schema, generate customized `CREATE TABLE`
-  statements if the (forthcoming) ones provided aren't good enough for your
-  back-end or use case... that sort of thing. As a somewhat contrived example:
-  maybe, for who knows what reason, you never want to allow null values in your
-  database. You can write a type family that can inspect every field in an
-  arbitrary schema, replacing all the `Maybe a` with just `a`, like:
+  statements if the ones provided aren't good enough for your back-end or
+  use case... that sort of thing. As a somewhat contrived example: maybe,
+  for who knows what reason, you never want to allow null values in your
+  database. You can write a type family that can inspect every field in
+  an arbitrary schema, replacing all the `Maybe a` with just `a`, like:
 
   ```haskell
   -- With -XPolyKinds
