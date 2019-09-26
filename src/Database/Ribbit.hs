@@ -399,7 +399,6 @@ type family LookupType name schema context where
   LookupType name a context = NotInSchema name context
 
 
-
 {- |
   Type class for defining your own tables. The primary way for you to
   introduce a new schema is to instantiate this type class for one of
@@ -421,20 +420,24 @@ class Table relation where
   type DBSchema relation
 
 {- | Cross product -}
-instance (Table l, Table r, KnownSymbol lname, KnownSymbol rname) => Table (l `As` lname `X` r `As` rname) where
-  type DBSchema (l `As` lname `X` r `As` rname) =
-    Flatten (
-      AliasAs lname (DBSchema l)
-      :> AliasAs rname (DBSchema r)
-    )
-  type Name (l `As` lname `X` r `As` rname) =
-    Name l
-    `AppendSymbol` " as "
-    `AppendSymbol` lname
-    `AppendSymbol` ", "
-    `AppendSymbol` Name r
-    `AppendSymbol` " as "
-    `AppendSymbol` rname
+instance
+    (Table l, Table r, KnownSymbol lname, KnownSymbol rname)
+  =>
+    Table (l `As` lname `X` r `As` rname)
+  where
+    type DBSchema (l `As` lname `X` r `As` rname) =
+      Flatten (
+        AliasAs lname (DBSchema l)
+        :> AliasAs rname (DBSchema r)
+      )
+    type Name (l `As` lname `X` r `As` rname) =
+      Name l
+      `AppendSymbol` " as "
+      `AppendSymbol` lname
+      `AppendSymbol` ", "
+      `AppendSymbol` Name r
+      `AppendSymbol` " as "
+      `AppendSymbol` rname
 
 
 {- |
@@ -654,15 +657,19 @@ instance Render (?) where
   render _proxy = "?"
 
 {- INSERT -}
-instance (ReflectFields fields, KnownSymbol (Name table)) => Render (InsertInto table fields) where
-  render _proxy =
-    let
-      fields :: [Text]
-      fields = reflectFields (Proxy @fields)
-    in
-      "insert into " <> symbolVal (Proxy @(Name table))
-      <> " (" <> T.intercalate ", " fields <> ")"
-      <> " values (" <> T.intercalate ", " (const "?" <$> fields) <> ");"
+instance
+    (ReflectFields fields, KnownSymbol (Name table))
+  =>
+    Render (InsertInto table fields)
+  where
+    render _proxy =
+      let
+        fields :: [Text]
+        fields = reflectFields (Proxy @fields)
+      in
+        "insert into " <> symbolVal (Proxy @(Name table))
+        <> " (" <> T.intercalate ", " fields <> ")"
+        <> " values (" <> T.intercalate ", " (const "?" <$> fields) <> ");"
 
 
 {- | Insert statement. -}
