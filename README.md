@@ -26,10 +26,13 @@ can do something useful with those types like talk to an actual database.
 Using Ribbit, you might expect to see something like this:
 
 ```haskell
-type PeopleTable =
-  Field "id" Int
-  :> Field "name" Text
-  :> Field "age" Int
+data PeopleTable
+instance Table PeopleTable where
+  type Name PeopleTable = "people"
+  type DBSchema PeopleTable =
+    Field "id" Int
+    :> Field "name" Text
+    :> Field "age" Int
   
 
 type MyQuery = Select '["id", "name"] `From` PeopleTable `Where` "age" `Equals` (?)
