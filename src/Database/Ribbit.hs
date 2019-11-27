@@ -50,6 +50,9 @@ module Database.Ribbit (
   -- ** Deleting values
   -- $delete
 
+  -- ** Updating values
+  -- $update
+
   -- * Schema Definition Types
   (:>)(..),
   Table(..),
@@ -66,6 +69,9 @@ module Database.Ribbit (
   
   -- ** Delete Constructors
   DeleteFrom,
+
+  -- ** Update Constructors
+  Update,
 
   -- ** Condition Conbinators
   Where,
@@ -295,6 +301,34 @@ import qualified GHC.TypeLits as Lit
 -- >     conn
 -- >     (Proxy :: Proxy DeleteAllEmployees)
 -- >     ()
+
+-- $update
+-- Updating values is almost the same as inserting values. Instead of
+-- specifying the fields that get inserted, you specify the fields that get
+-- updated, along with the conditions that match the rows to be updated.
+--
+-- > {- Update an employee's salary (hopefully a raise!). -}
+-- > type UpdateSalary =
+-- >   Update
+-- >     '[
+-- >       "salary"
+-- >     ]
+-- >   `Where` 
+-- >     "id" `Equals` (?)
+-- > 
+-- > ...
+-- > 
+-- > let
+-- >   newSalary :: Int
+-- >   newSalary = ...
+-- > 
+-- >   targetEmployee :: Int
+-- >   targetEmployee = ...
+-- > in
+-- >   execute
+-- >     conn
+-- >     (Proxy :: Proxy UpdateSalary)
+-- >     (Only newSalary :> Only targetEmployee)
 
 
 {- | "SELECT" constructor, used for starting a @SELECT@ statement. -}
@@ -528,6 +562,12 @@ type family ArgsType query where
     TypeError ('Lit.Text "Insert statement must specify at least one column.")
   ArgsType (InsertInto relation fields) =
     ProjectionType fields (DBSchema relation)
+  ArgsType (Update relation fields) =
+    ProjectionType fields (DBSchema relation)
+  ArgsType (Update relation fields `Where` conditions) =
+    ProjectionType fields (DBSchema relation)
+    :> ArgsType (DBSchema relation, conditions)
+
 
   ArgsType (schema, And a b) =
     StripUnit (Flatten (ArgsType (schema, a) :> ArgsType (schema, b)))
@@ -728,6 +768,31 @@ instance (KnownSymbol (Name table)) => Render (DeleteFrom table) where
   render _proxy =
     "delete from " <> symbolVal (Proxy @(Name table))
 
+{- UPDATE -}
+instance (KnownSymbol (Name table), RenderUpdates updates)
+  =>
+    Render (Update table updates)
+  where
+    render _proxy =
+      "UPDATE "
+      <> symbolVal (Proxy @(Name table))
+      <> " SET "
+      <> renderUpdates (Proxy @updates)
+
+
+{- | Render the updates to a table. -}
+class RenderUpdates a where
+  renderUpdates :: proxy a -> Text
+instance (KnownSymbol field) => RenderUpdates '[field] where
+  renderUpdates _ = symbolVal (Proxy @field) <> " = ?"
+instance (KnownSymbol field, RenderUpdates (m:ore))
+  =>
+    RenderUpdates (field : (m:ore))
+  where
+    renderUpdates _ =
+      symbolVal (Proxy @field) <> " = ?, "
+      <> renderUpdates (Proxy @(m:ore))
+
 
 {- | Insert statement. -}
 data InsertInto table fields
@@ -744,5 +809,9 @@ instance (KnownSymbol a, ReflectFields more) => ReflectFields (a:more) where
 
 {- | Delete statement. -}
 data DeleteFrom table
+
+
+{- | Update rows in a table. -}
+data Update table fields
 
 

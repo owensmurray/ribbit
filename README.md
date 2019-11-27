@@ -9,8 +9,8 @@
             - [Limited `CREATE TABLE` support.](#limited-create-table-support)
             - [`INSERT INTO` support.](#insert-into-support)
             - [`DELETE FROM` support.](#delete-from-support)
+            - [`UPDATE TABLE` support.](#update-table-support)
     - [Roadmap](#roadmap)
-        - [UPDATE support](#update-support)
         - [Flesh out Haskell to PostgreSQL type mapping.](#flesh-out-haskell-to-postgresql-type-mapping)
     - [How it compares with other libraries.](#how-it-compares-with-other-libraries)
     - [The name: Ribbit](#the-name-ribbit)
@@ -151,13 +151,48 @@ execute
   (Only 1)
 ```
 
+#### `UPDATE TABLE` support.
+
+Basic updates are supported:
+
+```haskell
+execute
+  conn
+  (Proxy :: Proxy (
+    Update PeopleTable
+      '[
+        "name", -- each field adds a query parameter so you can
+        "age"   -- provide the new value at run time.
+      ]
+    `Where` (
+      "id" `Equals` (?)
+    )
+  ))
+  (Only newName :> Only newAge :> Only targetEmployeeId)
+```
+
+
 ## Roadmap
 
 This is what I plan to work on next:
 
-### UPDATE support
+### Evaluate the usefulness of what I've got so far.
 
-Support update operations.
+I'm am half pleased with the way the query language turned out, because
+someone with understanding of SQL can at least read and modify queries,
+even if they would find it hard to construct them from scratch without
+examples, but I still feel they could be more ergonomic in at least two ways:
+
+1) Better error messages for compiler-guided development.
+2) Fewer backticks.
+
+I have tried playing around with defining the query language in terms
+of value level constructs, which I think can help improve both of these
+issues, but I haven't yet gotten that to work without requiring so much
+type annotation that it defeats the purpose of ergonomics. I have some
+vague idea about how I might solve that with generic instances, but I
+am reluctant to do anything that smacks of "magic" without exhausting
+all other possibilities first.
 
 ### Flesh out Haskell to PostgreSQL type mapping.
 
