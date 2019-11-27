@@ -24,8 +24,8 @@
      interpreted by third parties for their own purposes.
 
   To that end, each schema is a new type, defined by you, using the
-  combinators provided by this library. The same goes for queries. Each
-  query is a separate type defined with combinators from this library.
+  constructors provided by this library. The same goes for queries. Each
+  query is a separate type defined with constructors from this library.
 
   We provide a PostgreSQL backend so that real work can be accomplished,
   but if the backend is missing something you need, then the idea is
@@ -50,24 +50,31 @@ module Database.Ribbit (
   -- ** Deleting values
   -- $delete
 
+  -- ** Updating values
+  -- $update
+
   -- * Schema Definition Types
   (:>)(..),
   Table(..),
   Field,
 
-  -- * Query Combinators
+  -- * SQL Statement Constructors
+  -- ** Query Constructors
   Select,
   From,
   As,
-  Where,
 
-  -- * Insert Combinators
+  -- ** Insert Constructors
   InsertInto,
   
-  -- * Delete Combinators
+  -- ** Delete Constructors
   DeleteFrom,
 
+  -- ** Update Constructors
+  Update,
+
   -- ** Condition Conbinators
+  Where,
   And,
   Or,
   Equals,
@@ -78,16 +85,16 @@ module Database.Ribbit (
   Lte,
   Not,
 
-  -- ** Query Parameters
+  -- ** Statement Parameters
   type (?),
 
-  -- * Transformations on Query Types
+  -- * Transformations on Statement Types
   ArgsType,
   ResultType,
   ValidField,
   ProjectionType,
 
-  -- * Query Rendering
+  -- * Statement Rendering
   Render(..)
 
 ) where
@@ -156,7 +163,7 @@ import qualified GHC.TypeLits as Lit
 -- >     :> Field "birth_date" Day
 
 -- $query
--- To write queries against these tables, use the query combinators
+-- To write queries against these tables, use the query constructors
 -- defined in this module:
 -- 
 -- > -- Given a company name as a query parameter, return all the
@@ -295,74 +302,102 @@ import qualified GHC.TypeLits as Lit
 -- >     (Proxy :: Proxy DeleteAllEmployees)
 -- >     ()
 
+-- $update
+-- Updating values is almost the same as inserting values. Instead of
+-- specifying the fields that get inserted, you specify the fields that get
+-- updated, along with the conditions that match the rows to be updated.
+--
+-- > {- Update an employee's salary (hopefully a raise!). -}
+-- > type UpdateSalary =
+-- >   Update
+-- >     '[
+-- >       "salary"
+-- >     ]
+-- >   `Where` 
+-- >     "id" `Equals` (?)
+-- > 
+-- > ...
+-- > 
+-- > let
+-- >   newSalary :: Int
+-- >   newSalary = ...
+-- > 
+-- >   targetEmployee :: Int
+-- >   targetEmployee = ...
+-- > in
+-- >   execute
+-- >     conn
+-- >     (Proxy :: Proxy UpdateSalary)
+-- >     (Only newSalary :> Only targetEmployee)
 
-{- | "SELECT" combinator, used for starting a @SELECT@ statement. -}
+
+{- | "SELECT" constructor, used for starting a @SELECT@ statement. -}
 data Select fields
 
 
 {- |
-  "FROM" combinator, used for attaching a SELECT projection to a relation
+  "FROM" constructor, used for attaching a SELECT projection to a relation
   in the database.
 -}
 data From proj relation
 infixl 6 `From`
 
 
-{- | "WHERE" combinator, used for attaching conditions to a query. -}
+{- | "WHERE" constructor, used for attaching conditions to a query. -}
 data Where query conditions
 infixl 6 `Where`
 
 
-{- | "=" combinator for conditions. -}
+{- | "=" constructor for conditions. -}
 data Equals l r
 infix 9 `Equals`
 
 
-{- | "!=" combinator for conditions. -}
+{- | "!=" constructor for conditions. -}
 data NotEquals l r
 infix 9 `NotEquals`
 
 
-{- | "<" combinator for conditions. -}
+{- | "<" constructor for conditions. -}
 data Lt l r
 infix 9 `Lt`
 
 
-{- | "<=" combinator for conditions. -}
+{- | "<=" constructor for conditions. -}
 data Lte l r
 infix 9 `Lte`
 
 
-{- | ">" combinator for conditions. -}
+{- | ">" constructor for conditions. -}
 data Gt l r
 infix 9 `Gt`
 
 
-{- | ">=" combinator for conditions. -}
+{- | ">=" constructor for conditions. -}
 data Gte l r
 infix 9 `Gte`
 
 
-{- | "AND" combinator for conditions. -}
+{- | "AND" constructor for conditions. -}
 data And l r
 infixr 8 `And`
 
 
-{- | "OR" combinator for conditions. -}
+{- | "OR" constructor for conditions. -}
 data Or l r
 infixr 7 `Or`
 
 
-{- | "AS" combinator, used for attaching a name to a table in a FROM clause. -}
+{- | "AS" constructor, used for attaching a name to a table in a FROM clause. -}
 data As relation name
 infix 8 `As`
 
 
-{- | NOT conditional combinator. -}
+{- | NOT conditional constructor. -}
 data Not a
 
 
-{- | "?" combinator, used to indicate the presence of a query parameter. -}
+{- | "?" constructor, used to indicate the presence of a query parameter. -}
 data (?)
 
 
@@ -527,6 +562,12 @@ type family ArgsType query where
     TypeError ('Lit.Text "Insert statement must specify at least one column.")
   ArgsType (InsertInto relation fields) =
     ProjectionType fields (DBSchema relation)
+  ArgsType (Update relation fields) =
+    ProjectionType fields (DBSchema relation)
+  ArgsType (Update relation fields `Where` conditions) =
+    ProjectionType fields (DBSchema relation)
+    :> ArgsType (DBSchema relation, conditions)
+
 
   ArgsType (schema, And a b) =
     StripUnit (Flatten (ArgsType (schema, a) :> ArgsType (schema, b)))
@@ -722,11 +763,35 @@ instance
         <> " (" <> T.intercalate ", " fields <> ")"
         <> " values (" <> T.intercalate ", " (const "?" <$> fields) <> ");"
 
-
 {- DELETE -}
 instance (KnownSymbol (Name table)) => Render (DeleteFrom table) where
   render _proxy =
     "delete from " <> symbolVal (Proxy @(Name table))
+
+{- UPDATE -}
+instance (KnownSymbol (Name table), RenderUpdates updates)
+  =>
+    Render (Update table updates)
+  where
+    render _proxy =
+      "UPDATE "
+      <> symbolVal (Proxy @(Name table))
+      <> " SET "
+      <> renderUpdates (Proxy @updates)
+
+
+{- | Render the updates to a table. -}
+class RenderUpdates a where
+  renderUpdates :: proxy a -> Text
+instance (KnownSymbol field) => RenderUpdates '[field] where
+  renderUpdates _ = symbolVal (Proxy @field) <> " = ?"
+instance (KnownSymbol field, RenderUpdates (m:ore))
+  =>
+    RenderUpdates (field : (m:ore))
+  where
+    renderUpdates _ =
+      symbolVal (Proxy @field) <> " = ?, "
+      <> renderUpdates (Proxy @(m:ore))
 
 
 {- | Insert statement. -}
@@ -744,5 +809,9 @@ instance (KnownSymbol a, ReflectFields more) => ReflectFields (a:more) where
 
 {- | Delete statement. -}
 data DeleteFrom table
+
+
+{- | Update rows in a table. -}
+data Update table fields
 
 
