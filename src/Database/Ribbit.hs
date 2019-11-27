@@ -723,7 +723,6 @@ instance
         <> " (" <> T.intercalate ", " fields <> ")"
         <> " values (" <> T.intercalate ", " (const "?" <$> fields) <> ");"
 
-
 {- DELETE -}
 instance (KnownSymbol (Name table)) => Render (DeleteFrom table) where
   render _proxy =
