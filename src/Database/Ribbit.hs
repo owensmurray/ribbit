@@ -54,6 +54,25 @@ module Database.Ribbit (
   -- $update
 
   -- * Schema Definition Types
+  {- |
+    The 'Table' type is the core of how one defines table schemas. It
+    is a type class with two associated types: 'Name', which provides
+    the name of the table as it is known to SQL, and 'DBSchema', which
+    provides a schema for the table.
+
+    e.g.
+
+    An ''employees'' table:
+
+    > data Employee
+    > instance Table Employee where
+    >   type Name Employee = "employees"
+    >   type DBSchema Employee =
+    >     Field "id" Int
+    >     :> Field "name" Text
+    >     :> Field "salary" (Maybe Int)
+    >     :> Field "birth_date" Day
+  -}
   Table(..),
   Field,
   (:>)(..),
@@ -277,28 +296,13 @@ import Database.Ribbit.Update (Update)
 -- >     `And` "c.name" `Equals` (?)
 
 -- $usequery
--- Now that we have some tables and a query, how do we make use of
--- them? Well, the first thing to notice is that a query like this needs
--- inputs (the query parameter), and provides outputs (the selected
--- rows). These inputs and outputs need to be typed, and indeed they are
--- thanks to a couple of special type families:
+-- The easiest way to use a query is to pass it
+-- to the 'Database.Ribbit.PostgreSQL.query' or
+-- 'Database.Ribbit.PostgreSQL.execute' functions.
 --
--- * 'ArgsType' - Given a query, produce the type of the embedded query
---   parameters.
--- * 'ResultType' - Given a query, produce the type of rows produced by
---   that query.
--- 
--- +----------------------+-------------------------------------------+
--- | Example              | Resulting type                            |
--- +======================+===========================================+
--- | 'ArgsType' MyQuery   | 'Only' 'Text'                             |
--- +----------------------+-------------------------------------------+
--- | 'ResultType' MyQuery | 'Only' 'Text' ':>' 'Only' ('Maybe' 'Int') |
--- +----------------------+-------------------------------------------+
+-- It is worth looking at the type signature for
+-- 'Database.Ribbit.PostgreSQL.query':
 --
--- The "Database.Ribbit.PostgreSQL" module provides a
--- 'Database.Ribbit.PostgreSQL.query' function:
--- 
 -- > query ::
 -- >      forall m query.
 -- >      ( MonadIO m
@@ -310,23 +314,45 @@ import Database.Ribbit.Update (Update)
 -- >   -> Proxy query
 -- >   -> ArgsType query
 -- >   -> m [ResultType query]
+--
+-- In particular, I want to point how how, in addition to the query
+-- itself, 'Database.Ribbit.PostgreSQL.query' accepts an @'ArgsType' query@
+-- as a parameter, and produces a list of @'ResultType' query@ items.
+--
+-- 'ArgsType' and 'ResultType' are where the type safety magic
+-- happens. They are type families that, given a query type, produce the
+-- haskell type of the arguments to that query, and the rows produce by
+-- that query, respectively:
+--
+-- * 'ArgsType' - Given a query, produce the type of the embedded query
+--   parameters.
+-- * 'ResultType' - Given a query, produce the type of rows produced by
+--   that query.
 -- 
--- Notice that it accepts an @('ArgsType' query)@ argument, and returns a
--- list of @('ResultType' query)@ values.
--- 
+-- +-------------------------+------------------------------------------------+------------------------------------------------------------------------------+
+-- | Example                 | Resulting type                                 | Reason                                                                       |
+-- +=========================+================================================+==============================================================================+
+-- | @'ArgsType' MyQuery@    | @'Only' 'Text'@                                | Our query on only has one parameter, which is compared against the company   |
+-- |                         |                                                | "name" field, indicating it must be of type 'Text', because that is what     |
+-- |                         |                                                | we have defined the "name" column to be in our database schema using:        |
+-- |                         |                                                |                                                                              |
+-- |                         |                                                | @Field "name" Text@                                                          |
+-- |                         |                                                |                                                                              |
+-- +-------------------------+------------------------------------------------+------------------------------------------------------------------------------+
+-- | @'ResultType' MyQuery@  | @'Only' 'Text' ':>' 'Only' ('Maybe' 'Int')@    |  The Fields that 'MyQuery' is selecting are employee "name" and              |
+-- |                         |                                                |  "salary". Name is a non-null Text, and salary is a nullable integer.        |
+-- |                         |                                                |                                                                              |
+-- +-------------------------+------------------------------------------------+------------------------------------------------------------------------------+
+--
 -- Therefore, we can invoke the query thusly:
 -- 
--- > results <- query conn (Proxy :: Proxy MyQuery) (Only "Some Company")
--- 
--- The @('Only' "Some Company")@ argument fulfils the query parameters,
--- and the results will be a list of rows which can be deconstructed
--- using pattern matching. E.g.:
--- 
--- > sequence_
--- >   [
--- >     putStrLn (show name <> " - " <> show salary)
--- >     | (Only name :> Only salary) <- results
--- >   ]
+-- > do 
+-- >   results <- query conn (Proxy :: Proxy MyQuery) (Only "Some Company")
+-- >   sequence_
+-- >     [
+-- >       putStrLn (show name <> " - " <> show salary)
+-- >       | (Only name :> Only salary) <- results
+-- >     ]
 
 -- $insert
 -- To insert values into our example tables above, we need to write a
