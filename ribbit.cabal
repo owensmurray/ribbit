@@ -24,7 +24,15 @@ library
   exposed-modules:     
     Database.Ribbit
     Database.Ribbit.PostgreSQL
-  -- other-modules:       
+  other-modules:       
+    Database.Ribbit.Args
+    Database.Ribbit.Conditions
+    Database.Ribbit.Delete
+    Database.Ribbit.Insert
+    Database.Ribbit.Render
+    Database.Ribbit.Select
+    Database.Ribbit.Table
+    Database.Ribbit.Update
   -- other-extensions:    
   build-depends:
     Only              >= 0.1     && < 0.2,

@@ -1,15 +1,15 @@
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE DataKinds                  #-}
+{-# LANGUAGE DerivingStrategies         #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE PolyKinds                  #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE TypeApplications           #-}
+{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE TypeOperators              #-}
+{-# LANGUAGE UndecidableInstances       #-}
 
 {- | "postgresql-simple"-backed query ribbit implementation. -}
 module Database.Ribbit.PostgreSQL (
@@ -18,8 +18,8 @@ module Database.Ribbit.PostgreSQL (
   PsqlType(..),
 
   -- * Performing queries.
-  query,
   execute,
+  query,
 
   -- * Creating tables.
   createTable,
@@ -42,17 +42,19 @@ module Database.Ribbit.PostgreSQL (
 import Control.Monad (void)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Int (Int64)
-import Data.Proxy (Proxy(Proxy))
+import Data.Proxy (Proxy (Proxy))
 import Data.String (fromString, IsString)
 import Data.Text (Text)
 import Data.Time (Day)
-import Data.Tuple.Only (Only(Only))
+import Data.Tuple.Only (Only (Only))
 import Data.Type.Bool (If)
 import Database.PostgreSQL.Simple (Connection)
 import Database.PostgreSQL.Simple.FromField (FromField)
 import Database.PostgreSQL.Simple.ToField (Action, ToField)
-import Database.Ribbit (Render, render, ArgsType, ResultType, (:>)((:>)),
-  Name, Field, DBSchema, ValidField)
+import Database.Ribbit.Args (ArgsType, ResultType)
+import Database.Ribbit.Render (Render)
+import Database.Ribbit.Table ((:>)((:>)), Name, DBSchema, Field,
+  ValidField)
 import GHC.TypeLits (KnownSymbol, TypeError, ErrorMessage((:<>:),
   ShowType))
 import qualified Data.Text as T
@@ -62,41 +64,54 @@ import qualified Database.PostgreSQL.Simple.ToRow as PGT
 import qualified GHC.TypeLits as Lit
 
 
-{- | Execute a query against a PostgreSQL database connection. -}
-query :: (
-    MonadIO m,
-    Render query,
-    ToRow (ArgsType query),
-    FromRow (ResultType query)
-  )
-  => Connection
-  -> Proxy query
-  -> ArgsType query
-  -> m [ResultType query]
-query conn theQuery args =
-  liftIO . (fmap . fmap) unWrap $
-    PG.query
-      conn 
-      ((fromString . T.unpack . render) theQuery)
-      (Wrap args)
-
-
 {- | Execute a statement. -}
-execute :: (
-    MonadIO m,
-    ToRow (ArgsType query),
-    Render query
-  )
+execute ::
+     forall m query.
+     (MonadIO m, ToRow (ArgsType query), KnownSymbol (Render query))
   => Connection
   -> Proxy query
   -> ArgsType query
   -> m Int64
-execute conn theQuery args =
+execute conn _theQuery args =
   liftIO $
     PG.execute
       conn
-      ((fromString . T.unpack . render) theQuery)
+      (fromString (symbolVal (Proxy @(Render query))))
       (Wrap args)
+
+
+
+{- | Like 'PGT.ToRow', but defined here to avoid orphan instances. -}
+class ToRow a where
+  toRow :: a -> [Action]
+instance (ToRow a, ToRow b) => ToRow (a :> b) where
+  toRow (a :> b) = toRow a ++ toRow b
+instance (ToField a) => ToRow (Only a) where
+  toRow = PGT.toRow
+instance ToRow () where
+  toRow = PGT.toRow
+  
+
+{- | Like 'PGF.FromRow', but defined here so we can avoid orphaned instances. -}
+class FromRow a where
+  fromRow :: PGF.RowParser a
+instance (FromRow a, FromRow b) => FromRow (a :> b) where
+  fromRow = 
+    (:>)
+      <$> fromRow
+      <*> fromRow
+instance (FromField a) => FromRow (Only a) where
+  fromRow = Only <$> PGF.field
+
+
+{- | Wrapper that helps us avoid orphan instances. -}
+newtype Wrap a = Wrap {
+    unWrap :: a
+  }
+instance (FromRow a) => PGF.FromRow (Wrap a) where
+  fromRow = Wrap <$> fromRow
+instance (ToRow a) => PGT.ToRow (Wrap a) where
+  toRow = toRow . unWrap
 
 
 {- |
@@ -188,20 +203,6 @@ createTableStatement key _table =
     tableName = Proxy
 
 
-class HasFields a where
-  fields :: proxy a -> [Text]
-instance (KnownSymbol name) => HasFields (Field name typ) where
-  fields _proxy = [symbolVal (Proxy @name)]
-instance (KnownSymbol name, HasFields more) =>
-    HasFields (Field name typ :> more)
-  where
-    fields _proxy = symbolVal (Proxy @name) : fields (Proxy @more)
-instance HasFields '[] where
-  fields _proxy = []
-instance (KnownSymbol name, HasFields more) => HasFields (name:more) where
-  fields _proxy = symbolVal (Proxy @name) : fields (Proxy @more)
-
-
 class HasPsqlTypes a where
   psqlTypes :: proxy a -> [Text]
 instance (HasIsNullable typ, HasPsqlType typ) => HasPsqlTypes (Field name typ) where
@@ -233,6 +234,39 @@ instance HasPsqlType Day where
   psqlType _proxy = "date"
 
 
+{- | Make sure the fields in the list are actually part of the schema. -}
+type family IsSubset fields schema where
+  IsSubset '[] schema = 'True
+  IsSubset (field:more) schema =
+    If
+      (ValidField field schema)
+      (IsSubset more schema)
+      (
+        TypeError (
+          'Lit.Text "field "
+          ':<>: 'ShowType field
+          ':<>: 'Lit.Text " is not part of the schema, so it cannot be\
+                          \ used as a component of the primary key."
+        )
+      )
+
+
+{- | Produce a list of field names from a schema. -}
+class HasFields a where
+  fields :: proxy a -> [Text]
+instance (KnownSymbol name) => HasFields (Field name typ) where
+  fields _proxy = [symbolVal (Proxy @name)]
+instance (KnownSymbol name, HasFields more) =>
+    HasFields (Field name typ :> more)
+  where
+    fields _proxy = symbolVal (Proxy @name) : fields (Proxy @more)
+instance HasFields '[] where
+  fields _proxy = []
+instance (KnownSymbol name, HasFields more) => HasFields (name:more) where
+  fields _proxy = symbolVal (Proxy @name) : fields (Proxy @more)
+
+
+{- | Figure out if a Haskell type is "nullable" in sql. -}
 class HasIsNullable a where
   isNullable :: proxy a -> Bool
 instance HasIsNullable (Maybe a) where
@@ -256,60 +290,26 @@ newtype PsqlType = PsqlType {
   deriving newtype (IsString)
 
 
-{- | Like 'PGF.FromRow', but defined here so we can avoid orphaned instances. -}
-class FromRow a where
-  fromRow :: PGF.RowParser a
-instance (FromRow a, FromRow b) => FromRow (a :> b) where
-  fromRow = 
-    (:>)
-      <$> fromRow
-      <*> fromRow
-instance (FromField a) => FromRow (Only a) where
-  fromRow = Only <$> PGF.field
-
-
-{- | Like 'PGT.ToRow', but defined here to avoid orphan instances. -}
-class ToRow a where
-  toRow :: a -> [Action]
-instance (ToRow a, ToRow b) => ToRow (a :> b) where
-  toRow (a :> b) = toRow a ++ toRow b
-instance (ToField a) => ToRow (Only a) where
-  toRow = PGT.toRow
-instance ToRow () where
-  toRow = PGT.toRow
-  
-
-
-{- | Wrapper that helps us avoid orphan instances. -}
-newtype Wrap a = Wrap {
-    unWrap :: a
-  }
-instance (FromRow a) => PGF.FromRow (Wrap a) where
-  fromRow = Wrap <$> fromRow
-instance (ToRow a) => PGT.ToRow (Wrap a) where
-  toRow = toRow . unWrap
-
-
 {- | Like 'Lit.symbolVal', but produce any kind of string-like thing. -}
 symbolVal :: (KnownSymbol n, IsString a) => proxy n -> a
 symbolVal = fromString . Lit.symbolVal
 
 
-{- | Make sure the fields in the list are actually part of the schema. -}
-type family IsSubset fields schema where
-  IsSubset '[] schema = 'True
-  IsSubset (field:more) schema =
-    If
-      (ValidField field schema)
-      (IsSubset more schema)
-      (
-        TypeError (
-          'Lit.Text "field "
-          ':<>: 'ShowType field
-          ':<>: 'Lit.Text " is not part of the schema, so it cannot be\
-                          \ used as a component of the primary key."
-        )
-      )
-
-
-
+{- | Execute a query against a PostgreSQL database connection. -}
+query ::
+     forall m query.
+     ( MonadIO m
+     , KnownSymbol (Render query)
+     , ToRow (ArgsType query)
+     , FromRow (ResultType query)
+     )
+  => Connection
+  -> Proxy query
+  -> ArgsType query
+  -> m [ResultType query]
+query conn _theQuery args =
+  liftIO . (fmap . fmap) unWrap $
+    PG.query
+      conn 
+      (fromString (symbolVal (Proxy @(Render query))))
+      (Wrap args)

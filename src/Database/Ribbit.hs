@@ -54,62 +54,162 @@ module Database.Ribbit (
   -- $update
 
   -- * Schema Definition Types
-  (:>)(..),
   Table(..),
   Field,
+  (:>)(..),
 
   -- * SQL Statement Constructors
   -- ** Query Constructors
+  {- |
+    Types in the section are used to construct SELECT queries.
+
+    e.g.
+
+    List all employees who have quit, for all companies. (Left Joined
+    version, which shows companies that have had no employees quit.)
+
+    > Select '["c.name", "e.name", "e.quit_date"]
+    > `From`
+    >   Company `As` "c"
+    >   `LeftJoin`  Employee `As` "e" `On` "c.id" `Equals` "e.company_id"
+    > `Where`
+    >   NotNull "e.quit_date"
+
+    List all employees who have quit, for all companies. (Inner join
+    version, which omits companies from which no employee has quit.)
+
+    > Select '["c.name", "e.name", "e.quit_date"]
+    > `From` '[Company `As` "c", Employee `As` "e"]
+    > `Where`
+    >   "c.id" `Equals` "e.company_id"
+    >   `And` NotNull "e.quit_date"
+  -}
   Select,
   From,
   As,
+  On,
+  LeftJoin,
 
   -- ** Insert Constructors
+  {- |
+    Construct insert statements.
+
+    e.g.
+
+    Insert one row into the Employee Table.
+
+    > InsertInto Employee '["id", "company_id", "name"]
+
+    The values which are inserted into the specified fields are provided
+    as query parameters.
+  -}
   InsertInto,
-  
+
   -- ** Delete Constructors
+  {- |
+    Construct delete statements.
+
+    e.g.
+
+    Delete all rows from the Company table:
+    
+    > type Statement = DeleteFrom Company
+
+    Delete a specific row from the Company table:
+
+    > type Statement = DeleteFrom Company `Where` "id" `Equals` (?)
+  -}
   DeleteFrom,
 
   -- ** Update Constructors
+  {- |
+    Construct update statements
+
+    e.g.
+
+    Update a specific employee's salary:
+
+    > type Statement =
+    >   Update Employee '["salary"]
+    >   `Where`
+    >     "company_id" `Equals` (?)
+    >     `And` "id" `Equals` (?)
+
+    The values which are inserted into the specified fields are provided
+    as query parameters.
+
+    e.g.
+
+    > execute
+    >   conn
+    >   Statement
+    >   (Only newSalary :> Only companyId :> Only employeeId)
+  -}
   Update,
 
-  -- ** Condition Conbinators
+  -- ** Condition Constructors
+  {- | Use these types to construct a @WHERE@ clause. -}
+
   Where,
-  And,
-  Or,
   Equals,
   NotEquals,
-  Gt,
-  Gte,
   Lt,
   Lte,
+  Gt,
+  Gte,
+  And,
+  Or,
   Not,
-
-  -- ** Statement Parameters
+  IsNull,
+  NotNull,
   type (?),
 
   -- * Transformations on Statement Types
+  {- |
+    These type families are useful for transforming the query types in various
+    ways, or extracting certain information from them.
+
+    e.g.
+
+    Given the query:
+
+    > type Query = Select '["name"] `From` Company `Where` "id" `Equals` (?)
+
+    Render the query as a 'String' value (using 'GHC.TypeLits.symbolVal'):
+
+    > symbolVal (Proxy :: Proxy (Render Query)) == "SELECT name FROM companies WHERE id = ?"
+
+    Produce the Haskell type corresponding to the query parameters for a select
+    statement:
+
+    > ArgsType Query ~ Only Int -- Our statement has only one parameter, which is an int.
+
+    Produce the Haskell type corresponding to the rows produced by the query:
+
+    > ResultType Query ~ Only Text -- Our query procudes only one column, a text.
+
+  -}
   ArgsType,
   ResultType,
-  ValidField,
-  ProjectionType,
+  Render,
+  -- ValidField,
+  -- ProjectionType,
 
-  -- * Statement Rendering
-  Render(..)
+  -- -- * Statement Rendering
+  -- Render,
 
 ) where
 
 
-import Data.Proxy (Proxy(Proxy))
-import Data.String (IsString, fromString)
-import Data.Text (Text)
-import Data.Tuple.Only (Only)
-import Data.Type.Bool (If, type (||))
-import GHC.TypeLits (KnownSymbol, TypeError, ErrorMessage((:<>:),
-  (:$$:), ShowType), AppendSymbol, Symbol)
-import qualified Data.Text as T
-import qualified GHC.TypeLits as Lit
-
+import Database.Ribbit.Args (ArgsType, ResultType)
+import Database.Ribbit.Conditions (Where, Equals, NotEquals, Lt, Lte,
+  Gt, Gte, And, Or, Not, IsNull, NotNull, type (?))
+import Database.Ribbit.Delete (DeleteFrom)
+import Database.Ribbit.Insert (InsertInto)
+import Database.Ribbit.Render (Render)
+import Database.Ribbit.Select (Select, From, As, On, LeftJoin)
+import Database.Ribbit.Table (Table(Name, DBSchema), Field, (:>)((:>)))
+import Database.Ribbit.Update (Update)
 
 -- $definetable
 -- To define a table you need a type:
@@ -125,9 +225,7 @@ import qualified GHC.TypeLits as Lit
 -- And you need a type class instance 'Table':
 -- 
 -- > instance Table Company where
--- >
 -- >   type Name Company = "companies"
--- >
 -- >   type DBSchema Company =
 -- >     Field "id" Int
 -- >     :> Field "name" Text
@@ -150,16 +248,14 @@ import qualified GHC.TypeLits as Lit
 -- in the following examples:
 --
 -- > data Employee
--- >
 -- > instance Table Employee where
--- >
 -- >   type Name Employee = "employees"
--- >
 -- >   type DBSchema Employee =
--- >     Field "id" Int
--- >     :> Field "company_id" Int
+-- >     Field "company_id" Int
+-- >     :> Field "id" Int
 -- >     :> Field "name" Text
 -- >     :> Field "salary" (Maybe Int)
+-- >     :> Field "quit_date" (Maybe Day)
 -- >     :> Field "birth_date" Day
 
 -- $query
@@ -203,12 +299,13 @@ import qualified GHC.TypeLits as Lit
 -- The "Database.Ribbit.PostgreSQL" module provides a
 -- 'Database.Ribbit.PostgreSQL.query' function:
 -- 
--- > query :: (
--- >     MonadIO m,
--- >     Render query,
--- >     ToRow (ArgsType query),
--- >     FromRow (ResultType query)
--- >   )
+-- > query ::
+-- >      forall m query.
+-- >      ( MonadIO m
+-- >      , KnownSymbol (Render query)
+-- >      , ToRow (ArgsType query)
+-- >      , FromRow (ResultType query)
+-- >      )
 -- >   => Connection
 -- >   -> Proxy query
 -- >   -> ArgsType query
@@ -227,7 +324,7 @@ import qualified GHC.TypeLits as Lit
 -- 
 -- > sequence_
 -- >   [
--- >     putStrLn (show name <> " - " <> show sallary)
+-- >     putStrLn (show name <> " - " <> show salary)
 -- >     | (Only name :> Only salary) <- results
 -- >   ]
 
@@ -283,7 +380,9 @@ import qualified GHC.TypeLits as Lit
 -- > type DeleteAllEmployees = DeleteFrom Employee
 -- > type DeleteEmployeeById =
 -- >   DeleteFrom Employee
--- >   `Where` "id" `Equals` (?)
+-- >   `Where`
+-- >     "company_id" `Equals` (?)
+-- >     `And` "id" `Equals` (?)
 -- 
 -- Then just execute the query, providing the appropriate query params.
 -- 
@@ -309,509 +408,27 @@ import qualified GHC.TypeLits as Lit
 --
 -- > {- Update an employee's salary (hopefully a raise!). -}
 -- > type UpdateSalary =
--- >   Update
--- >     '[
--- >       "salary"
--- >     ]
+-- >   Update '[ "salary" ]
 -- >   `Where` 
+-- >     "company_id" `Equals` (?)
 -- >     "id" `Equals` (?)
 -- > 
 -- > ...
 -- > 
 -- > let
 -- >   newSalary :: Int
--- >   newSalary = ...
+-- >   newSalary = 2
+-- > 
+-- >   targetCompany :: Int
+-- >   targetCompany = 1
 -- > 
 -- >   targetEmployee :: Int
--- >   targetEmployee = ...
+-- >   targetEmployee = 1
+-- > 
 -- > in
 -- >   execute
 -- >     conn
 -- >     (Proxy :: Proxy UpdateSalary)
--- >     (Only newSalary :> Only targetEmployee)
-
-
-{- | "SELECT" constructor, used for starting a @SELECT@ statement. -}
-data Select fields
-
-
-{- |
-  "FROM" constructor, used for attaching a SELECT projection to a relation
-  in the database.
--}
-data From proj relation
-infixl 6 `From`
-
-
-{- | "WHERE" constructor, used for attaching conditions to a query. -}
-data Where query conditions
-infixl 6 `Where`
-
-
-{- | "=" constructor for conditions. -}
-data Equals l r
-infix 9 `Equals`
-
-
-{- | "!=" constructor for conditions. -}
-data NotEquals l r
-infix 9 `NotEquals`
-
-
-{- | "<" constructor for conditions. -}
-data Lt l r
-infix 9 `Lt`
-
-
-{- | "<=" constructor for conditions. -}
-data Lte l r
-infix 9 `Lte`
-
-
-{- | ">" constructor for conditions. -}
-data Gt l r
-infix 9 `Gt`
-
-
-{- | ">=" constructor for conditions. -}
-data Gte l r
-infix 9 `Gte`
-
-
-{- | "AND" constructor for conditions. -}
-data And l r
-infixr 8 `And`
-
-
-{- | "OR" constructor for conditions. -}
-data Or l r
-infixr 7 `Or`
-
-
-{- | "AS" constructor, used for attaching a name to a table in a FROM clause. -}
-data As relation name
-infix 8 `As`
-
-
-{- | NOT conditional constructor. -}
-data Not a
-
-
-{- | "?" constructor, used to indicate the presence of a query parameter. -}
-data (?)
-
-
-{- |
-  Define a field in a database schema, where:
-
-  - @name@: is the name of the database column, expressed as a type-level
-    string literal, and
-
-  - @typ@: is the Haskell type whose values get stored in the column.
-
-  E.g:
-
-  - @'Field' "company_name" 'Text'@
-  - @'Field' "expiration_date" ('Maybe' 'Data.Time.Day')@
-
--}
-data Field name typ
-
-
-{- |
-  String two types together. 'Int' ':>' 'Int' ':>' 'Int' is similar in
-  principal to the nested tuple ('Int', ('Int', 'Int')), but looks a
-  whole lot nicer when the number of elements becomes large.
-
-  This is how you build up a schema from a collection of 'Field' types.
-
-  E.g.:
-
-  > Field "foo" Int
-  > :> Field "bar" Text
-  > :> Field "baz" (Maybe Text)
-
-  It also the mechanism by which this library builds up the Haskell
-  types for query parameters and resulting rows that get returned. So
-  if you have a query that accepts three text query parameters, that
-  type represented in Haskell is going to be @('Only' 'Text' ':>' 'Only'
-  'Text' ':>' 'Only' 'Text')@.
-
-  If that query returns rows that contain a Text, an Int, and a Text,
-  then the type of the rows will be @('Only' 'Text' ':>' 'Only' 'Int'
-  ':>' 'Only' 'Text')@.
-
--}
-data a :> b = a :> b
-  deriving (Eq, Ord, Show)
-infixr 5 :>
-
-
-data Expr a
-
-
-type family ProjectionType proj schema where
-  ProjectionType '[name] schema =
-    LookupType name schema schema
-  ProjectionType (name:more) schema =
-    LookupType name schema schema
-    :> ProjectionType more schema
-
-type family LookupType name schema context where
-  LookupType name (Field name typ) _ = Only typ
-  LookupType name (Field name typ :> _) _ = Only typ
-  LookupType name (Field _ typ) context = NotInSchema name context
-  LookupType name (_ :> more) context = LookupType name more context
-  LookupType name a context = NotInSchema name context
-
-
-{- |
-  Type class for defining your own tables. The primary way for you to
-  introduce a new schema is to instantiate this type class for one of
-  your types.
-
-  E.g.:
-
-  > data MyTable
-  > instance Table MyTable where
-  >   type Name MyTable = "my_table"
-  >   type DBSchema MyTable =
-  >     Field "id" Int
-  >     :> Field "my_non_nullable_text_field" Text
-  >     :> Field "my_nullable_int_field" (Maybe Int)
-    
--}
-class Table relation where
-  type Name relation :: Symbol
-  type DBSchema relation
-
-{- | Cross product -}
-instance
-    (Table table, KnownSymbol name)
-  =>
-    Table ((table `As` name) : moreTables)
-  where
-    type DBSchema ((table `As` name) : moreTables) =
-      CrossProductSchema ((table `As` name) : moreTables)
-    type Name ((table `As` name) : moreTables) =
-      CrossProductName ((table `As` name) : moreTables)
-
-
-{- | Produce the schema of a cross product. -}
-type family CrossProductSchema cp where
-  CrossProductSchema '[table `as` name] =
-    Flatten (
-      AliasAs name (DBSchema table)
-    )
-  CrossProductSchema ((table `As` name) : moreTables) =
-    Flatten (
-      AliasAs name (DBSchema table)
-      :> CrossProductSchema moreTables
-    )
-
-
-{- | Product the renderable "name" of a cross product. -}
-type family CrossProductName cp where
-  CrossProductName '[table `As` name] = 
-    Name table
-    `AppendSymbol` " as "
-    `AppendSymbol` name
-  CrossProductName ((table `As` name) : moreTables) = 
-    Name table
-    `AppendSymbol` " as "
-    `AppendSymbol` name
-    `AppendSymbol` ", "
-    `AppendSymbol` CrossProductName moreTables
-
-
-{- |
-  Rename the fields in a given schema to reflect an applied table
-  alias. For instance, data Foo
--}
-type family AliasAs prefix schema where
-  AliasAs prefix (Field name typ) =
-    Field
-      (prefix `AppendSymbol` "." `AppendSymbol` name)
-      typ
-  AliasAs prefix (Field name typ :> more) =
-    Field
-      (prefix `AppendSymbol` "." `AppendSymbol` name)
-      typ
-    :> AliasAs prefix more
-
-
-{- | Produce the type of rows return by a query. -}
-type family ResultType query where
-  ResultType (Select fields `From` relation) =
-    ProjectionType fields (DBSchema relation)
-  ResultType (query `Where` conditions) = ResultType query
-  ResultType query =
-    TypeError ('Lit.Text "Malformed Query" ':$$: 'ShowType query)
-
-
-{- |
-  Produce the type represeting the placeholder ("?") values in a
-  paramaterized query.
--}
-type family ArgsType query where
-  ArgsType (_ `From` relation `Where` conditions) =
-    ArgsType (DBSchema relation, conditions)
-  ArgsType (DeleteFrom relation `Where` conditions) =
-    ArgsType (DBSchema relation, conditions)
-  ArgsType (InsertInto relation '[]) =
-    TypeError ('Lit.Text "Insert statement must specify at least one column.")
-  ArgsType (InsertInto relation fields) =
-    ProjectionType fields (DBSchema relation)
-  ArgsType (Update relation fields) =
-    ProjectionType fields (DBSchema relation)
-  ArgsType (Update relation fields `Where` conditions) =
-    ProjectionType fields (DBSchema relation)
-    :> ArgsType (DBSchema relation, conditions)
-
-
-  ArgsType (schema, And a b) =
-    StripUnit (Flatten (ArgsType (schema, a) :> ArgsType (schema, b)))
-  ArgsType (schema, Or a b) =
-    StripUnit (Flatten (ArgsType (schema, a) :> ArgsType (schema, b)))
-  ArgsType (schema, Condition field (?)) =
-    ProjectionType '[field] schema
-  ArgsType (schema, Condition (?) field) =
-    ProjectionType '[field] schema
-  ArgsType (schema, Condition l r) =
-    If
-      (ValidField r schema)
-      (If (ValidField l schema) () (NotInSchema l schema))
-      (NotInSchema r schema)
-  ArgsType (schema, Equals l r) = ArgsType (schema, Condition l r)
-  ArgsType (schema, NotEquals l r) = ArgsType (schema, Condition l r)
-  ArgsType (schema, Lt l r) = ArgsType (schema, Condition l r)
-  ArgsType (schema, Lte l r) = ArgsType (schema, Condition l r)
-  ArgsType (schema, Gt l r) = ArgsType (schema, Condition l r)
-  ArgsType (schema, Gte l r) = ArgsType (schema, Condition l r)
-  ArgsType (schema, Not a) = ArgsType (schema, a)
-  ArgsType _ = ()
-
-
-{- |
-  Helper for 'ArgsType'. Reduces the number of equations required, because
-  'ArgsType' doesn't actually care about which conditionl operator it
-  is inspecting.
--}
-data Condition l r
-
-
-type family NotInSchema field schema where
-  NotInSchema field schema =
-    TypeError (
-      'Lit.Text "name ("
-      ':<>: 'ShowType field
-      ':<>: 'Lit.Text ") not found in schema: "
-      ':<>: 'ShowType schema
-    )
-
-
-{- | Type level check to see if the field is actually contained in the schema -}
-type family ValidField field schema where
-  ValidField name (Field name typ) = 'True
-  ValidField name (Field _ typ) = 'False
-  ValidField name (a :> b) = ValidField name a || ValidField name b
-
-
-{- |
-  Normalize nested type strings to be right associative. Mainly used to
-  help simplify the implementation of other type families.
--}
-type family Flatten a where
-  Flatten ((a :> b) :> c) = Flatten (a :> b :> c)
-  Flatten (a :> b) = a :> Flatten b
-  Flatten a = a
-
-
-{- |
-  Strip redundant unit types out of a string of types. This is used
-  mainly to help simplify the implementation of 'ArgsType'.
--}
-type family StripUnit a where
-  StripUnit (() :> a) = StripUnit a
-  StripUnit (a :> ()) = StripUnit a
-  StripUnit (a :> b) = a :> StripUnit b
-  StripUnit a = a
-
-
-{- | Like 'Lit.symbolVal', but produce any kind of string-like thing. -}
-symbolVal :: (KnownSymbol n, IsString a) => proxy n -> a
-symbolVal = fromString . Lit.symbolVal
-
-
-{- | Render a type-level query as text. -}
-class Render query where
-  render :: proxy query -> Text
-
-{- SELECT -}
-instance (Render fields) => Render (Select fields) where
-  render _proxy =
-    "SELECT "
-    <> render (Proxy @fields)
-
-{- Field list -}
-instance (KnownSymbol field, ReflectFields (field:more)) => Render (field:more) where
-  render _proxy = T.intercalate "," (reflectFields (Proxy @(field:more)))
-
-{- FROM -}
-instance (KnownSymbol (Name relation), Render proj, Table relation) => Render (From proj relation) where
-  render _proxy =
-    render (Proxy @proj)
-    <> " FROM "
-    <> symbolVal (Proxy @(Name relation))
-
-{- WHERE -}
-instance (Render query, Render conditions) => Render (Where query conditions) where
-  render _proxy =
-    render (Proxy @query)
-    <> " WHERE "
-    <> render (Proxy @conditions)
-
-{- Equals -}
-instance (Render (Expr l), Render (Expr r)) => Render (Equals l r) where
-  render _proxy =
-    render (Proxy @(Expr l))
-    <> " = "
-    <> render (Proxy @(Expr r))
-
-{- Not Equals -}
-instance (Render (Expr l), Render (Expr r)) => Render (NotEquals l r) where
-  render _proxy =
-    render (Proxy @(Expr l))
-    <> " != "
-    <> render (Proxy @(Expr r))
-
-{- Not -}
-instance (Render a) => Render (Not a) where
-  render _proxy =
-    "not ("
-    <> render (Proxy @a)
-    <> ")"
-
-{- Gt -}
-instance (Render (Expr l), Render (Expr r)) => Render (Gt l r) where
-  render _proxy =
-    render (Proxy @(Expr l))
-    <> " > "
-    <> render (Proxy @(Expr r))
-
-{- Gte -}
-instance (Render (Expr l), Render (Expr r)) => Render (Gte l r) where
-  render _proxy =
-    render (Proxy @(Expr l))
-    <> " >= "
-    <> render (Proxy @(Expr r))
-
-{- Lt -}
-instance (Render (Expr l), Render (Expr r)) => Render (Lt l r) where
-  render _proxy =
-    render (Proxy @(Expr l))
-    <> " < "
-    <> render (Proxy @(Expr r))
-
-{- Lte -}
-instance (Render (Expr l), Render (Expr r)) => Render (Lte l r) where
-  render _proxy =
-    render (Proxy @(Expr l))
-    <> " <= "
-    <> render (Proxy @(Expr r))
-
-{- AND -}
-instance (Render l, Render r) => Render (And l r) where
-  render _proxy =
-    "( "
-    <> render (Proxy @l)
-    <> " AND "
-    <> render (Proxy @r)
-    <> " )"
-
-{- OR -}
-instance (Render l, Render r) => Render (Or l r) where
-  render _proxy =
-    "( "
-    <> render (Proxy @l)
-    <> " AND "
-    <> render (Proxy @r)
-    <> " )"
-
-{- Expr -}
-instance Render (Expr (?)) where
-  render _proxy = "?"
-instance (KnownSymbol a) => Render (Expr a) where
-  render _proxy = symbolVal (Proxy @a)
-
-{- (?) -}
-instance Render (?) where
-  render _proxy = "?"
-
-{- INSERT -}
-instance
-    (ReflectFields fields, KnownSymbol (Name table))
-  =>
-    Render (InsertInto table fields)
-  where
-    render _proxy =
-      let
-        fields :: [Text]
-        fields = reflectFields (Proxy @fields)
-      in
-        "insert into " <> symbolVal (Proxy @(Name table))
-        <> " (" <> T.intercalate ", " fields <> ")"
-        <> " values (" <> T.intercalate ", " (const "?" <$> fields) <> ");"
-
-{- DELETE -}
-instance (KnownSymbol (Name table)) => Render (DeleteFrom table) where
-  render _proxy =
-    "delete from " <> symbolVal (Proxy @(Name table))
-
-{- UPDATE -}
-instance (KnownSymbol (Name table), RenderUpdates updates)
-  =>
-    Render (Update table updates)
-  where
-    render _proxy =
-      "UPDATE "
-      <> symbolVal (Proxy @(Name table))
-      <> " SET "
-      <> renderUpdates (Proxy @updates)
-
-
-{- | Render the updates to a table. -}
-class RenderUpdates a where
-  renderUpdates :: proxy a -> Text
-instance (KnownSymbol field) => RenderUpdates '[field] where
-  renderUpdates _ = symbolVal (Proxy @field) <> " = ?"
-instance (KnownSymbol field, RenderUpdates (m:ore))
-  =>
-    RenderUpdates (field : (m:ore))
-  where
-    renderUpdates _ =
-      symbolVal (Proxy @field) <> " = ?, "
-      <> renderUpdates (Proxy @(m:ore))
-
-
-{- | Insert statement. -}
-data InsertInto table fields
-
-
-{- | Convert a type-level list of strings into a value. -}
-class ReflectFields a where
-  reflectFields :: proxy a -> [Text]
-instance ReflectFields '[] where
-  reflectFields _proxy = []
-instance (KnownSymbol a, ReflectFields more) => ReflectFields (a:more) where
-  reflectFields _proxy = symbolVal (Proxy @a) : reflectFields (Proxy @more)
-
-
-{- | Delete statement. -}
-data DeleteFrom table
-
-
-{- | Update rows in a table. -}
-data Update table fields
+-- >     (Only newSalary :> Only targetCompany :> Only targetEmployee)
 
 
