@@ -11,6 +11,7 @@ module Database.Ribbit.Delete (
 
 
 import Database.Ribbit.Conditions (RenderConditions, Where)
+import Database.Ribbit.Params (ParamsType, ParamsTypeSchema)
 import Database.Ribbit.Render (Render)
 import Database.Ribbit.Table (Name, DBSchema)
 import GHC.TypeLits (AppendSymbol)
@@ -28,5 +29,12 @@ type instance Render (DeleteFrom table `Where` conditions) =
   Render (DeleteFrom table)
   `AppendSymbol` " WHERE "
   `AppendSymbol` RenderConditions conditions (DBSchema table)
+
+
+type instance ParamsType (DeleteFrom relation `Where` conditions) =
+  ParamsTypeSchema (DBSchema relation) conditions
+
+
+type instance ParamsType (DeleteFrom relation) = ()
 
 

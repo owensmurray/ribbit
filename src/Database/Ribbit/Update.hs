@@ -12,8 +12,10 @@ module Database.Ribbit.Update (
 
 
 import Database.Ribbit.Conditions (RenderConditions, Where)
+import Database.Ribbit.Params (ParamsType, ParamsTypeSchema,
+  ProjectionType)
 import Database.Ribbit.Render (Render)
-import Database.Ribbit.Table (Name, DBSchema)
+import Database.Ribbit.Table (Name, DBSchema, (:>))
 import GHC.TypeLits (AppendSymbol, Symbol)
 
 
@@ -41,27 +43,13 @@ type family RenderUpdateFields fields where
     `AppendSymbol` " = ?, "
     `AppendSymbol` RenderUpdateFields more
 
--- {- UPDATE -}
--- instance (KnownSymbol (Name table), RenderUpdates updates)
---   =>
---     Render (Update table updates)
---   where
---     render _proxy =
---       "UPDATE "
---       <> symbolVal (Proxy @(Name table))
---       <> " SET "
---       <> renderUpdates (Proxy @updates)
--- 
--- 
--- {- | Render the updates to a table. -}
--- class RenderUpdates a where
---   renderUpdates :: proxy a -> Text
--- instance (KnownSymbol field) => RenderUpdates '[field] where
---   renderUpdates _ = symbolVal (Proxy @field) <> " = ?"
--- instance (KnownSymbol field, RenderUpdates (m:ore))
---   =>
---     RenderUpdates (field : (m:ore))
---   where
---     renderUpdates _ =
---       symbolVal (Proxy @field) <> " = ?, "
---       <> renderUpdates (Proxy @(m:ore))
+
+type instance ParamsType (Update relation fields) =
+  ProjectionType fields (DBSchema relation)
+
+
+type instance ParamsType (Update relation fields `Where` conditions) =
+  ProjectionType fields (DBSchema relation)
+  :> ParamsTypeSchema (DBSchema relation) conditions
+
+

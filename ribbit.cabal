@@ -25,10 +25,10 @@ library
     Database.Ribbit
     Database.Ribbit.PostgreSQL
   other-modules:       
-    Database.Ribbit.Args
     Database.Ribbit.Conditions
     Database.Ribbit.Delete
     Database.Ribbit.Insert
+    Database.Ribbit.Params
     Database.Ribbit.Render
     Database.Ribbit.Select
     Database.Ribbit.Table

@@ -21,10 +21,13 @@ module Database.Ribbit.Select (
 ) where
 
 
-import Database.Ribbit.Conditions (RenderJoinConditions, Where, RenderConditions)
+import Database.Ribbit.Conditions (RenderJoinConditions, Where,
+  RenderConditions)
+import Database.Ribbit.Params (ParamsType, ResultType, ParamsTypeSchema,
+  ProjectionType)
 import Database.Ribbit.Render (Render)
-import Database.Ribbit.Table (Name, DBSchema, Field, (:>), Table, Flatten,
-  Validate)
+import Database.Ribbit.Table (Name, DBSchema, Field, (:>), Table,
+  Flatten, Validate)
 import GHC.TypeLits (AppendSymbol, Symbol)
 
 
@@ -173,5 +176,16 @@ type instance Render (proj `From` table `Where` conditions) =
   Render (proj `From` table)
   `AppendSymbol` " WHERE "
   `AppendSymbol` RenderConditions conditions (DBSchema table)
+
+
+type instance ParamsType (_ `From` relation `Where` conditions) =
+  ParamsTypeSchema (DBSchema relation) conditions
+
+
+type instance ParamsType (Select proj `From` relation) = ()
+
+
+type instance ResultType (Select fields `From` relation) =
+    ProjectionType fields (DBSchema relation)
 
 
