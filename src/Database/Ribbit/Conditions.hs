@@ -25,7 +25,11 @@ module Database.Ribbit.Conditions (
 ) where
 
 
-import Database.Ribbit.Table (Validate)
+import Data.Type.Bool (If)
+import Database.Ribbit.Params (ParamsTypeSchema, ResultType,
+  ProjectionType)
+import Database.Ribbit.Table (Validate, Flatten, (:>), ValidField,
+  NotInSchema)
 import GHC.TypeLits (Symbol, AppendSymbol, TypeError, ErrorMessage((:<>:),
   ShowType))
 import qualified GHC.TypeLits as Lit
@@ -202,5 +206,47 @@ type family ClosedCondition schema l op r where
 
 {- | "?" constructor, used to indicate the presence of a query parameter. -}
 data (?)
+
+
+type instance ParamsTypeSchema schema (And a b) =
+  StripUnit (Flatten (ParamsTypeSchema schema a :> ParamsTypeSchema schema b))
+type instance ParamsTypeSchema schema (Or a b) =
+  StripUnit (Flatten (ParamsTypeSchema schema a :> ParamsTypeSchema schema b))
+type instance ParamsTypeSchema schema (Equals l r) = CompParams schema (Comparison l r)
+type instance ParamsTypeSchema schema (NotEquals l r) = CompParams schema (Comparison l r)
+type instance ParamsTypeSchema schema (Lt l r) = CompParams schema (Comparison l r)
+type instance ParamsTypeSchema schema (Lte l r) = CompParams schema (Comparison l r)
+type instance ParamsTypeSchema schema (Gt l r) = CompParams schema (Comparison l r)
+type instance ParamsTypeSchema schema (Gte l r) = CompParams schema (Comparison l r)
+type instance ParamsTypeSchema schema (Not a) = ParamsTypeSchema schema a
+
+
+type instance ResultType (query `Where` conditions) = ResultType query
+
+
+{- | Produce the parameters for a comparison operator. -}
+type family CompParams schema comp where
+  CompParams schema (Comparison field (?)) = ProjectionType '[field] schema
+  CompParams schema (Comparison (?) field) = ProjectionType '[field] schema
+  CompParams schema (Comparison l r) =
+    If
+      (ValidField r schema)
+      (If (ValidField l schema) () (NotInSchema l schema))
+      (NotInSchema r schema)
+
+
+{- | Helper for 'CompParams'. -}
+data Comparison l r
+
+
+{- |
+  Strip redundant unit types out of a string of types. This is used
+  mainly to help simplify the implementation of 'ParamsType'.
+-}
+type family StripUnit a where
+  StripUnit (() :> a) = StripUnit a
+  StripUnit (a :> ()) = StripUnit a
+  StripUnit (a :> b) = a :> StripUnit b
+  StripUnit a = a
 
 

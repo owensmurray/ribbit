@@ -11,8 +11,9 @@ module Database.Ribbit.Insert (
 ) where
 
 
+import Database.Ribbit.Params (ParamsType, ProjectionType)
 import Database.Ribbit.Render (Render)
-import Database.Ribbit.Table (Name)
+import Database.Ribbit.Table (Name, DBSchema)
 import GHC.TypeLits (AppendSymbol)
 
 
@@ -44,4 +45,7 @@ type family RendPlaceholderList a where
     `AppendSymbol` ", "
     `AppendSymbol` RendPlaceholderList (f2:more)
 
+
+type instance ParamsType (InsertInto relation fields) =
+  ProjectionType fields (DBSchema relation)
 

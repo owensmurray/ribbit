@@ -1,9 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -201,14 +199,15 @@ module Database.Ribbit (
     Produce the Haskell type corresponding to the query parameters for a select
     statement:
 
-    > ArgsType Query ~ Only Int -- Our statement has only one parameter, which is an int.
+    > ParamsType Query ~ Only Int -- Our statement has only one parameter, which is an int.
 
     Produce the Haskell type corresponding to the rows produced by the query:
 
     > ResultType Query ~ Only Text -- Our query procudes only one column, a text.
 
   -}
-  ArgsType,
+  ParamsType,
+  ParamsTypeSchema,
   ResultType,
   Render,
   -- ValidField,
@@ -220,11 +219,11 @@ module Database.Ribbit (
 ) where
 
 
-import Database.Ribbit.Args (ArgsType, ResultType)
 import Database.Ribbit.Conditions (Where, Equals, NotEquals, Lt, Lte,
   Gt, Gte, And, Or, Not, IsNull, NotNull, type (?))
 import Database.Ribbit.Delete (DeleteFrom)
 import Database.Ribbit.Insert (InsertInto)
+import Database.Ribbit.Params (ParamsType, ResultType, ParamsTypeSchema)
 import Database.Ribbit.Render (Render)
 import Database.Ribbit.Select (Select, From, As, On, LeftJoin)
 import Database.Ribbit.Table (Table(Name, DBSchema), Field, (:>)((:>)))
@@ -307,42 +306,42 @@ import Database.Ribbit.Update (Update)
 -- >      forall m query.
 -- >      ( MonadIO m
 -- >      , KnownSymbol (Render query)
--- >      , ToRow (ArgsType query)
+-- >      , ToRow (ParamsType query)
 -- >      , FromRow (ResultType query)
 -- >      )
 -- >   => Connection
 -- >   -> Proxy query
--- >   -> ArgsType query
+-- >   -> ParamsType query
 -- >   -> m [ResultType query]
 --
 -- In particular, I want to point how how, in addition to the query
--- itself, 'Database.Ribbit.PostgreSQL.query' accepts an @'ArgsType' query@
+-- itself, 'Database.Ribbit.PostgreSQL.query' accepts an @'ParamsType' query@
 -- as a parameter, and produces a list of @'ResultType' query@ items.
 --
--- 'ArgsType' and 'ResultType' are where the type safety magic
+-- 'ParamsType' and 'ResultType' are where the type safety magic
 -- happens. They are type families that, given a query type, produce the
 -- haskell type of the arguments to that query, and the rows produce by
 -- that query, respectively:
 --
--- * 'ArgsType' - Given a query, produce the type of the embedded query
+-- * 'ParamsType' - Given a query, produce the type of the embedded query
 --   parameters.
 -- * 'ResultType' - Given a query, produce the type of rows produced by
 --   that query.
 -- 
--- +-------------------------+------------------------------------------------+------------------------------------------------------------------------------+
--- | Example                 | Resulting type                                 | Reason                                                                       |
--- +=========================+================================================+==============================================================================+
--- | @'ArgsType' MyQuery@    | @'Only' 'Text'@                                | Our query on only has one parameter, which is compared against the company   |
--- |                         |                                                | "name" field, indicating it must be of type 'Text', because that is what     |
--- |                         |                                                | we have defined the "name" column to be in our database schema using:        |
--- |                         |                                                |                                                                              |
--- |                         |                                                | @Field "name" Text@                                                          |
--- |                         |                                                |                                                                              |
--- +-------------------------+------------------------------------------------+------------------------------------------------------------------------------+
--- | @'ResultType' MyQuery@  | @'Only' 'Text' ':>' 'Only' ('Maybe' 'Int')@    |  The Fields that 'MyQuery' is selecting are employee "name" and              |
--- |                         |                                                |  "salary". Name is a non-null Text, and salary is a nullable integer.        |
--- |                         |                                                |                                                                              |
--- +-------------------------+------------------------------------------------+------------------------------------------------------------------------------+
+-- +-----------------------------+-----------------------------------------------------------------------------------------------------------------+------------------------------------------------------------------------------+
+-- | Example                     | Resulting type                                                                                                  | Reason                                                                       |
+-- +=============================+=================================================================================================================+==============================================================================+
+-- | @'ParamsType'&#160;MyQuery@ | @'Data.Tuple.Only.Only'&#160;'Data.Text.Text'@                                                                  | Our query on only has one parameter, which is compared against the company   |
+-- |                             |                                                                                                                 | "name" field, indicating it must be of type 'Text', because that is what     |
+-- |                             |                                                                                                                 | we have defined the "name" column to be in our database schema using:        |
+-- |                             |                                                                                                                 |                                                                              |
+-- |                             |                                                                                                                 | @Field "name" Text@                                                          |
+-- |                             |                                                                                                                 |                                                                              |
+-- +-----------------------------+-----------------------------------------------------------------------------------------------------------------+------------------------------------------------------------------------------+
+-- | @'ResultType'&#160;MyQuery@ | @'Data.Tuple.Only.Only'&#160;'Data.Text.Text'&#160;':>'&#160;'Data.Tuple.Only.Only'&#160;('Maybe'&#160;'Int')@  | The Fields that 'MyQuery' is selecting are employee "name" and               |
+-- |                             |                                                                                                                 | "salary". Name is a non-null Text, and salary is a nullable integer.         |
+-- |                             |                                                                                                                 |                                                                              |
+-- +-----------------------------+-----------------------------------------------------------------------------------------------------------------+------------------------------------------------------------------------------+
 --
 -- Therefore, we can invoke the query thusly:
 -- 

@@ -51,7 +51,7 @@ import Data.Type.Bool (If)
 import Database.PostgreSQL.Simple (Connection)
 import Database.PostgreSQL.Simple.FromField (FromField)
 import Database.PostgreSQL.Simple.ToField (Action, ToField)
-import Database.Ribbit.Args (ArgsType, ResultType)
+import Database.Ribbit.Params (ParamsType, ResultType)
 import Database.Ribbit.Render (Render)
 import Database.Ribbit.Table ((:>)((:>)), Name, DBSchema, Field,
   ValidField)
@@ -67,10 +67,10 @@ import qualified GHC.TypeLits as Lit
 {- | Execute a statement. -}
 execute ::
      forall m query.
-     (MonadIO m, ToRow (ArgsType query), KnownSymbol (Render query))
+     (MonadIO m, ToRow (ParamsType query), KnownSymbol (Render query))
   => Connection
   -> Proxy query
-  -> ArgsType query
+  -> ParamsType query
   -> m Int64
 execute conn _theQuery args =
   liftIO $
@@ -300,12 +300,12 @@ query ::
      forall m query.
      ( MonadIO m
      , KnownSymbol (Render query)
-     , ToRow (ArgsType query)
+     , ToRow (ParamsType query)
      , FromRow (ResultType query)
      )
   => Connection
   -> Proxy query
-  -> ArgsType query
+  -> ParamsType query
   -> m [ResultType query]
 query conn _theQuery args =
   liftIO . (fmap . fmap) unWrap $
